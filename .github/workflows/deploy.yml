@@ -1,0 +1,26 @@
+name: Build Images
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  docker-build:
+    name: Build Service Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build auth-service image
+        run: docker build -f infra/docker/auth-service.Dockerfile -t backend-platform/auth-service:${{ github.sha }} .
+
+      - name: Build user-service image
+        run: docker build -f infra/docker/user-service.Dockerfile -t backend-platform/user-service:${{ github.sha }} .
+
+      - name: Build api-gateway image
+        run: docker build -f infra/docker/gateway.Dockerfile -t backend-platform/api-gateway:${{ github.sha }} .
