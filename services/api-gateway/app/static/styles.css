@@ -117,6 +117,13 @@ textarea {
   margin-bottom: 10px;
 }
 
+.subsection-title {
+  font-weight: 600;
+  margin: 8px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .status {
   background: #151515;
   border: 1px solid var(--border);
@@ -177,7 +184,7 @@ textarea {
 
 .choice {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 12px;
 }

@@ -56,3 +56,11 @@ class SessionRepository:
         )
         result = await session.execute(stmt)
         return int(result.scalar_one()) > 0
+
+    async def revoke_user_sessions(self, session: AsyncSession, user_id: UUID) -> None:
+        stmt = (
+            update(UserSession)
+            .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(tz=timezone.utc))
+        )
+        await session.execute(stmt)

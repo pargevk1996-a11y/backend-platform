@@ -39,3 +39,8 @@ class TooManyRequestsException(AppException):
 class BadRequestException(AppException):
     def __init__(self, message: str = "Bad request") -> None:
         super().__init__(message=message, error_code="BAD_REQUEST", status_code=400)
+
+
+class ServiceUnavailableException(AppException):
+    def __init__(self, message: str = "Service unavailable") -> None:
+        super().__init__(message=message, error_code="SERVICE_UNAVAILABLE", status_code=503)

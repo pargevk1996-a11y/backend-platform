@@ -11,6 +11,8 @@ AUDIT_2FA_DISABLED = "auth.2fa.disabled"
 AUDIT_2FA_SETUP_INITIATED = "auth.2fa.setup.initiated"
 AUDIT_2FA_VERIFICATION_FAILED = "auth.2fa.verification.failed"
 AUDIT_BACKUP_CODES_REGENERATED = "auth.2fa.backup.regenerated"
+AUDIT_PASSWORD_RESET_REQUESTED = "auth.password_reset.requested"
+AUDIT_PASSWORD_RESET_COMPLETED = "auth.password_reset.completed"
 
 TOKEN_TYPE_ACCESS = "access"
 TOKEN_TYPE_REFRESH = "refresh"

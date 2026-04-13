@@ -31,7 +31,16 @@ function setResult(value, isError) {
 
 function setLoading(isLoading) {
   state.loading = isLoading;
-  ["regBtn", "loginBtn", "login2faBtn", "setup2faBtn", "enable2faBtn", "logoutBtn"].forEach((id) => {
+  [
+    "regBtn",
+    "loginBtn",
+    "login2faBtn",
+    "setup2faBtn",
+    "enable2faBtn",
+    "logoutBtn",
+    "resetRequestBtn",
+    "resetConfirmBtn",
+  ].forEach((id) => {
     const el = $(id);
     if (el) el.disabled = isLoading;
   });
@@ -49,13 +58,19 @@ function setSetupEnabled(enabled) {
 
 function setFormMode(mode) {
   const isRegister = mode === "register";
+  const isLogin = mode === "login";
+  const isReset = mode === "reset";
   $("formRegister").classList.toggle("hidden", !isRegister);
-  $("formLogin").classList.toggle("hidden", isRegister);
+  $("formLogin").classList.toggle("hidden", !isLogin);
+  $("formReset").classList.toggle("hidden", !isReset);
   $("chooseRegister").classList.toggle("active", isRegister);
-  $("chooseLogin").classList.toggle("active", !isRegister);
+  $("chooseLogin").classList.toggle("active", isLogin);
+  $("chooseReset").classList.toggle("active", isReset);
   $("formGuide").textContent = isRegister
     ? "Register: enter your email and password, then click \"Create account\". After that you can create a QR once and enable 2FA."
-    : "Login: enter your email and password, then click \"Sign in\". If 2FA is required, the step will appear below — enter the Google Authenticator code.";
+    : isLogin
+      ? "Login: enter your email and password, then click \"Sign in\". If 2FA is required, the step will appear below — enter the Google Authenticator code."
+      : "Reset password: request a 6-digit code by email, then enter the code and a new password.";
 }
 
 function bindEnter(inputIds, buttonId, isVisible) {
@@ -186,6 +201,60 @@ $("loginBtn").addEventListener("click", async () => {
   }
 });
 
+$("resetRequestBtn").addEventListener("click", async () => {
+  setLoading(true);
+  setStatus("Sending reset email...", false);
+  setResult("Sending reset email...", false);
+  try {
+    const email = $("resetEmail").value.trim();
+    if (!email) {
+      setStatus("Email is required for password reset.", true);
+      return;
+    }
+    const body = await post("/v1/auth/password/forgot", { email });
+    setStatus("If the email exists, a reset code was sent.", false);
+    setResult(body, false);
+  } catch (err) {
+    setStatus(err.message || "Reset request failed.", true);
+    setResult(err, true);
+  } finally {
+    setLoading(false);
+  }
+});
+
+$("resetConfirmBtn").addEventListener("click", async () => {
+  setLoading(true);
+  setStatus("Resetting password...", false);
+  setResult("Resetting password...", false);
+  try {
+    const email = $("resetEmail").value.trim();
+    const code = $("resetCode").value.trim();
+    const password = $("resetPassword").value;
+    if (!email || !code || !password) {
+      setStatus("Email, code, and new password are required.", true);
+      return;
+    }
+    if (!/^[0-9]{6}$/.test(code)) {
+      setStatus("Reset code must be 6 digits.", true);
+      return;
+    }
+    const body = await post("/v1/auth/password/reset", {
+      email,
+      code,
+      password,
+    });
+    setStatus("Password reset successful. You can sign in now.", false);
+    setResult(body, false);
+    $("resetCode").value = "";
+    $("resetPassword").value = "";
+  } catch (err) {
+    setStatus(err.message || "Password reset failed.", true);
+    setResult(err, true);
+  } finally {
+    setLoading(false);
+  }
+});
+
 $("login2faBtn").addEventListener("click", async () => {
   setLoading(true);
   setStatus("Verifying 2FA...", false);
@@ -291,9 +360,12 @@ setSetupEnabled(false);
 
 $("chooseRegister").addEventListener("click", () => setFormMode("register"));
 $("chooseLogin").addEventListener("click", () => setFormMode("login"));
+$("chooseReset").addEventListener("click", () => setFormMode("reset"));
 
 bindEnter(["regEmail", "regPassword"], "regBtn", () => !$("formRegister").classList.contains("hidden"));
 bindEnter(["loginEmail", "loginPassword"], "loginBtn", () => !$("formLogin").classList.contains("hidden"));
+bindEnter(["resetEmail"], "resetRequestBtn", () => !$("formReset").classList.contains("hidden"));
+bindEnter(["resetCode", "resetPassword"], "resetConfirmBtn", () => !$("formReset").classList.contains("hidden"));
 bindEnter(["totpCode"], "login2faBtn", () => !$("twoFaStep").classList.contains("hidden"));
 bindEnter(["enableTotpCode"], "enable2faBtn");
 
@@ -304,6 +376,9 @@ window.addEventListener("load", () => {
       "regPassword",
       "loginEmail",
       "loginPassword",
+      "resetEmail",
+      "resetCode",
+      "resetPassword",
       "displayName",
       "enableTotpCode",
       "totpCode",

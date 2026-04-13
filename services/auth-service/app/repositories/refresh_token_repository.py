@@ -85,3 +85,11 @@ class RefreshTokenRepository:
             .values(revoked_at=datetime.now(tz=timezone.utc), revocation_reason=reason)
         )
         await session.execute(stmt)
+
+    async def revoke_all_for_user(self, session: AsyncSession, user_id: UUID, reason: str) -> None:
+        stmt = (
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(tz=timezone.utc), revocation_reason=reason)
+        )
+        await session.execute(stmt)

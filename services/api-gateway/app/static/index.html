@@ -32,6 +32,7 @@
         <div class="choice">
           <button id="chooseRegister" class="choice-btn active">Create account</button>
           <button id="chooseLogin" class="choice-btn">Sign in</button>
+          <button id="chooseReset" class="choice-btn">Reset password</button>
         </div>
         <div id="formGuide" class="guide">
           Register: enter your email and password, then click "Create account". After that you can create a QR once and enable 2FA.
@@ -59,6 +60,26 @@
             <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
           </div>
           <button id="loginBtn" class="btn">Sign in</button>
+        </div>
+
+        <div id="formReset" class="form hidden" autocomplete="off">
+          <div class="note">
+            We will email you a 6-digit code. Enter it below to set a new password.
+          </div>
+          <div class="row">
+            <label>Email</label>
+            <input id="resetEmail" autocomplete="off" placeholder="user@example.com" />
+          </div>
+          <button id="resetRequestBtn" class="btn btn--ghost">Send reset code</button>
+          <div class="row">
+            <label>Reset code</label>
+            <input id="resetCode" autocomplete="off" placeholder="6-digit code" />
+          </div>
+          <div class="row">
+            <label>New password</label>
+            <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+          </div>
+          <button id="resetConfirmBtn" class="btn">Reset password</button>
         </div>
 
         <div class="divider"></div>

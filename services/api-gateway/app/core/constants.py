@@ -6,6 +6,8 @@ PUBLIC_ENDPOINTS = {
     ("POST", "/v1/auth/register"),
     ("POST", "/v1/auth/login"),
     ("POST", "/v1/auth/login/2fa"),
+    ("POST", "/v1/auth/password/forgot"),
+    ("POST", "/v1/auth/password/reset"),
     ("POST", "/v1/tokens/refresh"),
     ("POST", "/v1/tokens/revoke"),
     ("GET", "/v1/health/live"),

@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import time
 
+import logging
+
 from fastapi import Request
+from redis.exceptions import RedisError
 from redis.asyncio import Redis
 
 from app.core.config import Settings
 from app.core.privacy import stable_hmac_digest
-from app.exceptions.gateway import TooManyRequestsException
+from app.exceptions.gateway import ServiceUnavailableException, TooManyRequestsException
 from app.integrations.redis.keys import rate_limit_key
 from app.core.security import get_client_ip
+
+LOGGER = logging.getLogger(__name__)
 
 
 class RateLimiter:
@@ -23,9 +28,13 @@ class RateLimiter:
         bucket = int(time.time() // 60)
         key = rate_limit_key(scope=scope, ip=client_hash, bucket=bucket)
 
-        current = await self.redis.incr(key)
-        if current == 1:
-            await self.redis.expire(key, 61)
+        try:
+            current = await self.redis.incr(key)
+            if current == 1:
+                await self.redis.expire(key, 61)
+        except RedisError as exc:
+            LOGGER.error("rate_limit.redis_error", extra={"error": str(exc), "scope": scope})
+            raise ServiceUnavailableException("Rate limiter unavailable") from exc
 
         if current > limit_per_minute:
             raise TooManyRequestsException("Rate limit exceeded")

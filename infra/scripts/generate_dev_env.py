@@ -64,6 +64,7 @@ def main() -> None:
     auth_privacy_pepper = _gen_secret()
     user_privacy_pepper = _gen_secret()
     gateway_privacy_pepper = _gen_secret()
+    reset_pepper = _gen_secret()
 
     auth_db_password = _gen_password(24)
     user_db_password = _gen_password(24)
@@ -89,6 +90,7 @@ def main() -> None:
             "",
             f"REFRESH_TOKEN_HASH_PEPPER={refresh_pepper}",
             f"PRIVACY_KEY_PEPPER={auth_privacy_pepper}",
+            f"PASSWORD_RESET_TOKEN_PEPPER={reset_pepper}",
             "",
             "TOTP_ISSUER=Backend Platform",
             f"TOTP_ENCRYPTION_KEY={fernet_key}",
@@ -96,11 +98,19 @@ def main() -> None:
             "TOTP_INTERVAL_SECONDS=30",
             "",
             "LOGIN_CHALLENGE_TTL_SECONDS=300",
+            "PASSWORD_RESET_TOKEN_TTL_SECONDS=900",
+            "SMTP_HOST=",
+            "SMTP_PORT=587",
+            "SMTP_USERNAME=",
+            "SMTP_PASSWORD=",
+            "SMTP_USE_TLS=true",
+            "SMTP_FROM_EMAIL=",
             "",
             "RATE_LIMIT_LOGIN_PER_MINUTE=10",
             "RATE_LIMIT_2FA_PER_MINUTE=10",
             "RATE_LIMIT_REFRESH_PER_MINUTE=30",
             "RATE_LIMIT_REGISTER_PER_MINUTE=5",
+            "RATE_LIMIT_PASSWORD_RESET_PER_MINUTE=5",
             "",
             "BRUTE_FORCE_LOGIN_MAX_ATTEMPTS=5",
             "BRUTE_FORCE_LOGIN_WINDOW_SECONDS=300",

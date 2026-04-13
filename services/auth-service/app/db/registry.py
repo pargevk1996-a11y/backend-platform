@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.models.audit_event import AuditEvent
 from app.models.backup_code import BackupCode
+from app.models.password_reset_token import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.models.two_factor_secret import TwoFactorSecret
 from app.models.user import User
@@ -13,5 +14,6 @@ __all__ = [
     "UserSession",
     "TwoFactorSecret",
     "BackupCode",
+    "PasswordResetToken",
     "AuditEvent",
 ]

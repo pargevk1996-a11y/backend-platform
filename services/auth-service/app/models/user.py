@@ -31,3 +31,6 @@ class User(Base):
         "TwoFactorSecret", back_populates="user", uselist=False, lazy="selectin"
     )
     backup_codes = relationship("BackupCode", back_populates="user", lazy="selectin")
+    password_reset_tokens = relationship(
+        "PasswordResetToken", back_populates="user", lazy="selectin"
+    )

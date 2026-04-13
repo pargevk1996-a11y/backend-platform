@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     refresh_token_hash_pepper: SecretStr = Field(alias="REFRESH_TOKEN_HASH_PEPPER")
     privacy_key_pepper: SecretStr = Field(alias="PRIVACY_KEY_PEPPER")
+    password_reset_token_pepper: SecretStr = Field(alias="PASSWORD_RESET_TOKEN_PEPPER")
 
     totp_issuer: str = "Backend Platform"
     totp_encryption_key: SecretStr = Field(alias="TOTP_ENCRYPTION_KEY")
@@ -46,12 +47,14 @@ class Settings(BaseSettings):
     totp_interval_seconds: int = 30
 
     login_challenge_ttl_seconds: int = 300
+    password_reset_token_ttl_seconds: int = 900
 
     rate_limit_login_per_minute: int = 10
     rate_limit_2fa_per_minute: int = 10
     rate_limit_2fa_setup_per_minute: int = 5
     rate_limit_refresh_per_minute: int = 30
     rate_limit_register_per_minute: int = 5
+    rate_limit_password_reset_per_minute: int = 5
 
     brute_force_login_max_attempts: int = 5
     brute_force_login_window_seconds: int = 300
@@ -60,6 +63,13 @@ class Settings(BaseSettings):
     brute_force_2fa_max_attempts: int = 5
     brute_force_2fa_window_seconds: int = 300
     brute_force_2fa_lock_seconds: int = 900
+
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    smtp_from_email: str | None = None
 
     access_cookie_name: str = "access_token"
     refresh_cookie_name: str = "refresh_token"
@@ -93,7 +103,7 @@ class Settings(BaseSettings):
             raise ValueError(f"Unsupported JWT algorithm: {normalized}")
         return normalized
 
-    @field_validator("refresh_token_hash_pepper", "privacy_key_pepper")
+    @field_validator("refresh_token_hash_pepper", "privacy_key_pepper", "password_reset_token_pepper")
     @classmethod
     def _validate_pepper_length(cls, value: SecretStr) -> SecretStr:
         if len(value.get_secret_value()) < MIN_SECRET_LENGTH:
@@ -149,6 +159,14 @@ class Settings(BaseSettings):
     @property
     def privacy_key_pepper_value(self) -> str:
         return self.privacy_key_pepper.get_secret_value()
+
+    @property
+    def password_reset_token_pepper_value(self) -> str:
+        return self.password_reset_token_pepper.get_secret_value()
+
+    @property
+    def password_reset_token_ttl_value(self) -> int:
+        return max(60, self.password_reset_token_ttl_seconds)
 
     @property
     def totp_encryption_key_value(self) -> str:

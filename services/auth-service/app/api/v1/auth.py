@@ -7,9 +7,19 @@ from app.api.deps import get_auth_service, get_session
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limit_dependency
 from app.core.security import get_client_ip
-from app.schemas.auth import LoginRequest, LoginResponse, LoginTwoFactorRequest, RegisterRequest
+from app.schemas.auth import (
+    LoginRequest,
+    LoginResponse,
+    LoginTwoFactorRequest,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
+    PasswordResetResponse,
+    RegisterRequest,
+)
 from app.schemas.token import TokenPairResponse
 from app.services.auth_service import AuthService
+from app.services.password_reset_service import PasswordResetService
+from app.api.deps import get_password_reset_service
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -98,3 +108,45 @@ async def verify_login_2fa(
         refresh_token=token_pair.refresh_token,
         expires_in=token_pair.access_expires_in,
     )
+
+
+@router.post(
+    "/password/forgot",
+    response_model=PasswordResetResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_dependency("password_reset", settings.rate_limit_password_reset_per_minute))],
+)
+async def request_password_reset(
+    payload: PasswordResetRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    reset_service: PasswordResetService = Depends(get_password_reset_service),
+) -> PasswordResetResponse:
+    await reset_service.request_reset(
+        session,
+        email=payload.email,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return PasswordResetResponse()
+
+
+@router.post(
+    "/password/reset",
+    response_model=PasswordResetResponse,
+)
+async def reset_password(
+    payload: PasswordResetConfirmRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    reset_service: PasswordResetService = Depends(get_password_reset_service),
+) -> PasswordResetResponse:
+    await reset_service.reset_password(
+        session,
+        email=payload.email,
+        code=payload.code,
+        new_password=payload.password,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return PasswordResetResponse()

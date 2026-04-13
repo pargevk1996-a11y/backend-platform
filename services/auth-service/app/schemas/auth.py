@@ -44,3 +44,32 @@ class LoginResponse(BaseModel):
     requires_2fa: bool
     challenge_id: str | None = None
     tokens: TokenPairResponse | None = None
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
+    password: str = Field(min_length=8, max_length=256)
+
+    @field_validator("password")
+    @classmethod
+    def _validate_password(cls, value: str) -> str:
+        if not re.search(r"[A-Za-z]", value):
+            raise ValueError("Password must include at least one letter")
+        if not re.search(r"\d", value):
+            raise ValueError("Password must include at least one digit")
+        return value
+
+
+class PasswordResetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = "ok"

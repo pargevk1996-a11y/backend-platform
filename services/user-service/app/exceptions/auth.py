@@ -23,6 +23,11 @@ class BadRequestException(AppException):
         super().__init__(message=message, error_code="BAD_REQUEST", status_code=400)
 
 
+class ServiceUnavailableException(AppException):
+    def __init__(self, message: str = "Service unavailable") -> None:
+        super().__init__(message=message, error_code="SERVICE_UNAVAILABLE", status_code=503)
+
+
 class NotFoundException(AppException):
     def __init__(self, message: str = "Not found") -> None:
         super().__init__(message=message, error_code="NOT_FOUND", status_code=404)

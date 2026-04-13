@@ -18,6 +18,11 @@ class TooManyRequestsException(AppException):
         super().__init__(message=message, error_code="TOO_MANY_REQUESTS", status_code=429)
 
 
+class ServiceUnavailableException(AppException):
+    def __init__(self, message: str = "Service unavailable") -> None:
+        super().__init__(message=message, error_code="SERVICE_UNAVAILABLE", status_code=503)
+
+
 class UpstreamServiceException(AppException):
     def __init__(self, message: str = "Upstream service error") -> None:
         super().__init__(message=message, error_code="UPSTREAM_ERROR", status_code=502)

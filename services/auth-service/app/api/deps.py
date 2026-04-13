@@ -14,6 +14,7 @@ from app.exceptions.auth import UnauthorizedException
 from app.integrations.redis.client import get_redis
 from app.models.user import User
 from app.repositories.audit_repository import AuditRepository
+from app.repositories.password_reset_repository import PasswordResetRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.two_factor_repository import TwoFactorRepository
@@ -23,9 +24,11 @@ from app.services.auth_service import AuthService
 from app.services.brute_force_protection_service import BruteForceProtectionService
 from app.services.jwt_service import JWTService
 from app.services.password_service import PasswordService
+from app.services.password_reset_service import PasswordResetService
 from app.services.refresh_token_service import RefreshTokenService
 from app.services.session_service import SessionService
 from app.services.two_factor_service import TwoFactorService
+from app.integrations.email.provider import EmailProvider
 
 
 @lru_cache(maxsize=1)
@@ -36,6 +39,11 @@ def get_user_repository() -> UserRepository:
 @lru_cache(maxsize=1)
 def get_refresh_token_repository() -> RefreshTokenRepository:
     return RefreshTokenRepository()
+
+
+@lru_cache(maxsize=1)
+def get_password_reset_repository() -> PasswordResetRepository:
+    return PasswordResetRepository()
 
 
 @lru_cache(maxsize=1)
@@ -92,6 +100,20 @@ def get_audit_service() -> AuditService:
     return AuditService(get_audit_repository())
 
 
+@lru_cache(maxsize=1)
+def get_email_provider() -> EmailProvider:
+    settings = get_settings()
+    return EmailProvider(
+        host=getattr(settings, "smtp_host", None),
+        port=getattr(settings, "smtp_port", 587),
+        username=getattr(settings, "smtp_username", None),
+        password=getattr(settings, "smtp_password", None),
+        use_tls=getattr(settings, "smtp_use_tls", True),
+        from_email=getattr(settings, "smtp_from_email", None),
+        require_delivery=settings.service_env != "development",
+    )
+
+
 def get_settings_dep() -> Settings:
     return get_settings()
 
@@ -115,6 +137,28 @@ async def get_auth_service(
         refresh_token_service=refresh_token_service,
         two_factor_service=two_factor_service,
         brute_force_service=brute_force_service,
+        audit_service=audit_service,
+    )
+
+
+async def get_password_reset_service(
+    settings: Settings = Depends(get_settings_dep),
+    user_repository: UserRepository = Depends(get_user_repository),
+    password_service: PasswordService = Depends(get_password_service),
+    reset_repository: PasswordResetRepository = Depends(get_password_reset_repository),
+    refresh_token_repository: RefreshTokenRepository = Depends(get_refresh_token_repository),
+    session_service: SessionService = Depends(get_session_service),
+    email_provider: EmailProvider = Depends(get_email_provider),
+    audit_service: AuditService = Depends(get_audit_service),
+) -> PasswordResetService:
+    return PasswordResetService(
+        settings=settings,
+        user_repository=user_repository,
+        password_service=password_service,
+        password_reset_repository=reset_repository,
+        refresh_token_repository=refresh_token_repository,
+        session_service=session_service,
+        email_provider=email_provider,
         audit_service=audit_service,
     )
 
