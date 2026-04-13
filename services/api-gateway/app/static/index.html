@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Backend Platform Auth</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__media" role="img" aria-label="Abstract geometric background"></div>
+      <div class="hero__content">
+        <div class="hero__title">Authentication Console</div>
+        <div class="hero__subtitle">Google Authenticator required for 2FA setup.</div>
+        <div class="hero__row">
+          <div class="hero__field">
+            <label for="baseUrl">Gateway URL</label>
+            <input id="baseUrl" value="http://localhost:8000" />
+          </div>
+          <div class="hero__field">
+            <label for="displayName">Display name (profile)</label>
+            <input id="displayName" placeholder="Optional, applied after register" />
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="status" id="statusLine">Ready.</div>
+        <div class="section-title">Account</div>
+        <div class="choice">
+          <button id="chooseRegister" class="choice-btn active">Create account</button>
+          <button id="chooseLogin" class="choice-btn">Sign in</button>
+        </div>
+        <div id="formGuide" class="guide">
+          Register: enter your email and password, then click "Create account". After that you can create a QR once and enable 2FA.
+        </div>
+
+        <div id="formRegister" class="form" autocomplete="off">
+          <div class="row">
+            <label>Email</label>
+            <input id="regEmail" autocomplete="off" placeholder="user@example.com" />
+          </div>
+          <div class="row">
+            <label>Password</label>
+            <input id="regPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+          </div>
+          <button id="regBtn" class="btn">Create account</button>
+        </div>
+
+        <div id="formLogin" class="form hidden" autocomplete="off">
+          <div class="row">
+            <label>Email</label>
+            <input id="loginEmail" autocomplete="off" placeholder="user@example.com" />
+          </div>
+          <div class="row">
+            <label>Password</label>
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+          </div>
+          <button id="loginBtn" class="btn">Sign in</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div id="twoFaStep" class="form hidden" autocomplete="off">
+          <div class="row">
+            <label>Authenticator code</label>
+            <input id="totpCode" autocomplete="off" placeholder="123456" />
+          </div>
+          <button id="login2faBtn" class="btn">Verify 2FA</button>
+        </div>
+      </section>
+
+      <aside class="panel panel--right">
+        <div class="section-title">Google Authenticator</div>
+        <div class="note" id="setupNote">
+          Create QR is available only right after registration.
+        </div>
+        <div class="row">
+          <button id="setup2faBtn" class="btn btn--ghost" disabled>Create QR for Google Authenticator</button>
+        </div>
+        <div class="note">
+          Scan the QR, then enter the 6-digit code to enable 2FA.
+        </div>
+        <div class="qr" id="qrBox">
+          <img id="qrImage" alt="QR code for Google Authenticator" />
+          <div id="qrEmpty" class="qr-empty">QR will appear here</div>
+        </div>
+        <div class="row">
+          <label>Authenticator code</label>
+          <input id="enableTotpCode" autocomplete="off" placeholder="123456" />
+        </div>
+        <div class="row">
+          <button id="enable2faBtn" class="btn">Enable 2FA</button>
+        </div>
+        <div class="row">
+          <button id="logoutBtn" class="btn btn--ghost">Sign out</button>
+        </div>
+        <div class="row">
+          <label>Status</label>
+          <pre id="result" class="result"></pre>
+        </div>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
