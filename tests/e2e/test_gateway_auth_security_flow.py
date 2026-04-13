@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+import asyncio
+import os
+from datetime import UTC, datetime
+from uuid import uuid4
+
+import httpx
+import pyotp
+import pytest
+
+pytestmark = pytest.mark.e2e
+
+
+def _base_url() -> str:
+    return os.getenv("GATEWAY_BASE_URL", "http://localhost:8000").rstrip("/")
+
+
+def _strong_password() -> str:
+    return "StrongPassword!12345"
+
+
+async def _wait_for_next_totp_code(totp: pyotp.TOTP, *, previous_code: str) -> str:
+    deadline = datetime.now(UTC).timestamp() + 35
+    while datetime.now(UTC).timestamp() < deadline:
+        code = totp.at(for_time=datetime.now(UTC))
+        if code != previous_code:
+            return code
+        await asyncio.sleep(0.5)
+    raise AssertionError("Timed out waiting for next TOTP time window")
+
+
+@pytest.mark.asyncio
+async def test_gateway_auth_security_flow() -> None:
+    email = f"user-{uuid4().hex}@example.com"
+    password = _strong_password()
+
+    async with httpx.AsyncClient(base_url=_base_url(), timeout=20.0) as client:
+        register_response = await client.post(
+            "/v1/auth/register",
+            json={"email": email, "password": password},
+        )
+        assert register_response.status_code == 201, register_response.text
+        register_payload = register_response.json()
+        access_token = register_payload["access_token"]
+        initial_refresh = register_payload["refresh_token"]
+
+        setup_response = await client.post(
+            "/v1/two-factor/setup",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert setup_response.status_code == 200, setup_response.text
+        setup_payload = setup_response.json()
+        secret = setup_payload["secret"]
+
+        totp = pyotp.TOTP(secret)
+        current_code = totp.at(for_time=datetime.now(UTC))
+        enable_response = await client.post(
+            "/v1/two-factor/enable",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={"totp_code": current_code},
+        )
+        assert enable_response.status_code == 200, enable_response.text
+        backup_codes = enable_response.json()["backup_codes"]
+        assert isinstance(backup_codes, list) and len(backup_codes) == 10
+
+        login_response = await client.post(
+            "/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert login_response.status_code == 200, login_response.text
+        login_payload = login_response.json()
+        assert login_payload["requires_2fa"] is True
+        assert "tokens" not in login_payload or login_payload["tokens"] is None
+        challenge_id = login_payload["challenge_id"]
+
+        verify_code = await _wait_for_next_totp_code(totp, previous_code=current_code)
+        login_2fa_response = await client.post(
+            "/v1/auth/login/2fa",
+            json={"challenge_id": challenge_id, "totp_code": verify_code},
+        )
+        assert login_2fa_response.status_code == 200, login_2fa_response.text
+        token_pair = login_2fa_response.json()
+        rotated_refresh = token_pair["refresh_token"]
+
+        refresh_response = await client.post(
+            "/v1/tokens/refresh",
+            json={"refresh_token": rotated_refresh},
+        )
+        assert refresh_response.status_code == 200, refresh_response.text
+        refresh_payload = refresh_response.json()
+        newest_refresh = refresh_payload["refresh_token"]
+        assert newest_refresh != rotated_refresh
+
+        reused_response = await client.post(
+            "/v1/tokens/refresh",
+            json={"refresh_token": rotated_refresh},
+        )
+        assert reused_response.status_code in {401, 409}, reused_response.text
+
+        revoke_response = await client.post(
+            "/v1/tokens/revoke",
+            json={"refresh_token": newest_refresh, "revoke_family": True},
+        )
+        assert revoke_response.status_code == 200, revoke_response.text
+
+        post_revoke_refresh = await client.post(
+            "/v1/tokens/refresh",
+            json={"refresh_token": newest_refresh},
+        )
+        assert post_revoke_refresh.status_code in {401, 409}, post_revoke_refresh.text
+
+        _ = initial_refresh
