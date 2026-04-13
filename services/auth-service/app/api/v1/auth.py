@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_auth_service, get_session
+from app.core.config import get_settings
+from app.core.rate_limit import rate_limit_dependency
+from app.core.security import get_client_ip
+from app.schemas.auth import LoginRequest, LoginResponse, LoginTwoFactorRequest, RegisterRequest
+from app.schemas.token import TokenPairResponse
+from app.services.auth_service import AuthService
+
+settings = get_settings()
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post(
+    "/register",
+    response_model=TokenPairResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit_dependency("register", settings.rate_limit_register_per_minute))],
+)
+async def register(
+    payload: RegisterRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> TokenPairResponse:
+    token_pair = await auth_service.register(
+        session,
+        email=payload.email,
+        password=payload.password,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return TokenPairResponse(
+        access_token=token_pair.access_token,
+        refresh_token=token_pair.refresh_token,
+        expires_in=token_pair.access_expires_in,
+    )
+
+
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    dependencies=[Depends(rate_limit_dependency("login", settings.rate_limit_login_per_minute))],
+)
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> LoginResponse:
+    result = await auth_service.login(
+        session,
+        email=payload.email,
+        password=payload.password,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    if result.requires_2fa:
+        return LoginResponse(requires_2fa=True, challenge_id=result.challenge_id)
+
+    tokens = result.tokens
+    return LoginResponse(
+        requires_2fa=False,
+        tokens=TokenPairResponse(
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            expires_in=tokens.access_expires_in,
+        ),
+    )
+
+
+@router.post(
+    "/login/2fa",
+    response_model=TokenPairResponse,
+    dependencies=[Depends(rate_limit_dependency("2fa", settings.rate_limit_2fa_per_minute))],
+)
+async def verify_login_2fa(
+    payload: LoginTwoFactorRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> TokenPairResponse:
+    token_pair = await auth_service.verify_login_challenge(
+        session,
+        challenge_id=payload.challenge_id,
+        totp_code=payload.totp_code,
+        backup_code=payload.backup_code,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return TokenPairResponse(
+        access_token=token_pair.access_token,
+        refresh_token=token_pair.refresh_token,
+        expires_in=token_pair.access_expires_in,
+    )
