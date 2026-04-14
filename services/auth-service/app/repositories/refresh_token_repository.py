@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import Select
 from sqlalchemy.orm import lazyload
+from sqlalchemy.sql import Select
 
 from app.models.refresh_token import RefreshToken
 
@@ -61,7 +61,7 @@ class RefreshTokenRepository:
         reason: str,
         replaced_by_jti: UUID | None = None,
     ) -> None:
-        token.revoked_at = datetime.now(tz=timezone.utc)
+        token.revoked_at = datetime.now(tz=UTC)
         token.revocation_reason = reason
         token.replaced_by_jti = replaced_by_jti
 
@@ -72,7 +72,7 @@ class RefreshTokenRepository:
         token: RefreshToken,
         replaced_by_jti: UUID,
     ) -> None:
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         token.rotated_at = now
         token.revoked_at = now
         token.revocation_reason = "rotated"
@@ -82,7 +82,7 @@ class RefreshTokenRepository:
         stmt = (
             update(RefreshToken)
             .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(tz=timezone.utc), revocation_reason=reason)
+            .values(revoked_at=datetime.now(tz=UTC), revocation_reason=reason)
         )
         await session.execute(stmt)
 
@@ -90,6 +90,6 @@ class RefreshTokenRepository:
         stmt = (
             update(RefreshToken)
             .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(tz=timezone.utc), revocation_reason=reason)
+            .values(revoked_at=datetime.now(tz=UTC), revocation_reason=reason)
         )
         await session.execute(stmt)

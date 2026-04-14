@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import httpx
+from httpx._types import QueryParamTypes
 
 
 class UserClient:
@@ -13,7 +14,7 @@ class UserClient:
         *,
         method: str,
         path: str,
-        params: list[tuple[str, str]] | None,
+        params: QueryParamTypes,
         headers: dict[str, str],
         content: bytes,
     ) -> httpx.Response:

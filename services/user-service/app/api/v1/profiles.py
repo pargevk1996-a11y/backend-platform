@@ -57,7 +57,7 @@ async def update_profile(
         locale=payload.locale,
         timezone=payload.timezone,
         avatar_url=payload.avatar_url,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()

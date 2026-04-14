@@ -14,7 +14,9 @@ class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    )
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     requested_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     requested_user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)

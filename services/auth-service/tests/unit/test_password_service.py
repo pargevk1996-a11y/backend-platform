@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from app.core.config import get_settings
 from app.exceptions.auth import BadRequestException
 from app.services.password_service import PasswordService

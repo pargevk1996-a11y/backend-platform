@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     privacy_key_pepper: SecretStr = Field(alias="PRIVACY_KEY_PEPPER")
 
     upstream_timeout_seconds: float = 10.0
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     rate_limit_public_auth_per_minute: int = 30
     rate_limit_protected_per_minute: int = 120
@@ -47,6 +48,15 @@ class Settings(BaseSettings):
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def _parse_origins(cls, value: str | list[str] | None) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
+
+    @field_validator("trusted_proxy_ips", mode="before")
+    @classmethod
+    def _parse_trusted_proxy_ips(cls, value: str | list[str] | None) -> list[str]:
         if value is None:
             return []
         if isinstance(value, str):
@@ -71,4 +81,4 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # type: ignore[call-arg]

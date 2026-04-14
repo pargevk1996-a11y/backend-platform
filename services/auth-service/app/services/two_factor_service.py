@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from uuid import UUID
 
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,7 +60,9 @@ class TwoFactorService:
 
         secret = generate_secret()
         encrypted_secret = self._encrypt_secret(secret)
-        await self.repository.upsert_secret(session, user_id=user.id, encrypted_secret=encrypted_secret)
+        await self.repository.upsert_secret(
+            session, user_id=user.id, encrypted_secret=encrypted_secret
+        )
 
         uri = provisioning_uri(
             secret=secret,
@@ -71,11 +72,13 @@ class TwoFactorService:
         qr_png_base64 = generate_qr_png_base64(uri)
         return TwoFactorSetupData(secret=secret, provisioning_uri=uri, qr_png_base64=qr_png_base64)
 
-    async def enable(self, session: AsyncSession, *, user: User, totp_code: str) -> GeneratedBackupCodes:
+    async def enable(
+        self, session: AsyncSession, *, user: User, totp_code: str
+    ) -> GeneratedBackupCodes:
         if user.two_factor_enabled:
             raise TwoFactorAlreadyEnabledException()
 
-        secret_record = await self.repository.get_secret(session, user.id)
+        secret_record = await self.repository.get_secret_for_update(session, user.id)
         if secret_record is None:
             raise BadRequestException("2FA setup has not been initialized")
 
@@ -89,7 +92,9 @@ class TwoFactorService:
         if not is_valid:
             raise InvalidTwoFactorCodeException()
 
-        await self.repository.confirm_secret(session, record=secret_record, last_used_timecode=timecode)
+        await self.repository.confirm_secret(
+            session, record=secret_record, last_used_timecode=timecode
+        )
         user.two_factor_enabled = True
 
         plain_codes = self._generate_plain_backup_codes(10)
@@ -168,7 +173,10 @@ class TwoFactorService:
         if not is_valid:
             raise InvalidTwoFactorCodeException()
 
-        if secret_record.last_used_timecode == timecode:
+        if (
+            secret_record.last_used_timecode is not None
+            and timecode <= secret_record.last_used_timecode
+        ):
             raise InvalidTwoFactorCodeException()
 
         await self.repository.update_last_used_timecode(
@@ -177,8 +185,10 @@ class TwoFactorService:
             last_used_timecode=timecode,
         )
 
-    async def _verify_backup_code(self, session: AsyncSession, *, user: User, backup_code: str) -> None:
-        codes = await self.repository.list_backup_codes(session, user.id)
+    async def _verify_backup_code(
+        self, session: AsyncSession, *, user: User, backup_code: str
+    ) -> None:
+        codes = await self.repository.list_backup_codes_for_update(session, user.id)
         for candidate in codes:
             if candidate.used_at is not None:
                 continue

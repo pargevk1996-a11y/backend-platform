@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     service_env: Literal["development", "staging", "production"] = "development"
     service_port: int = 8002
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     database_url: str = Field(alias="DATABASE_URL")
     redis_url: str = Field(alias="REDIS_URL")
@@ -47,6 +48,15 @@ class Settings(BaseSettings):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
 
+    @field_validator("trusted_proxy_ips", mode="before")
+    @classmethod
+    def _parse_trusted_proxy_ips(cls, value: str | list[str] | None) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
+
     @field_validator("privacy_key_pepper")
     @classmethod
     def _validate_pepper_length(cls, value: SecretStr) -> SecretStr:
@@ -65,4 +75,4 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # type: ignore[call-arg]

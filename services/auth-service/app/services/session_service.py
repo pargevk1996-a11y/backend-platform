@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.user_session import UserSession
 from app.repositories.session_repository import SessionRepository
 
 
@@ -19,7 +20,7 @@ class SessionService:
         refresh_family_id: UUID,
         ip_address: str | None,
         user_agent: str | None,
-    ):
+    ) -> UserSession:
         return await self.repository.create(
             session,
             user_id=user_id,

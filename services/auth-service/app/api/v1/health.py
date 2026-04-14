@@ -1,10 +1,8 @@
 from __future__ import annotations
 
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from fastapi import APIRouter, Depends, Request
-from fastapi import HTTPException
 
 from app.db.session import get_session
 from app.schemas.common import HealthResponse

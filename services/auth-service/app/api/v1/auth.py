@@ -3,10 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_auth_service, get_session
+from app.api.deps import get_auth_service, get_password_reset_service
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limit_dependency
 from app.core.security import get_client_ip
+from app.db.session import get_session
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
@@ -19,7 +20,6 @@ from app.schemas.auth import (
 from app.schemas.token import TokenPairResponse
 from app.services.auth_service import AuthService
 from app.services.password_reset_service import PasswordResetService
-from app.api.deps import get_password_reset_service
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -29,7 +29,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     "/register",
     response_model=TokenPairResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(rate_limit_dependency("register", settings.rate_limit_register_per_minute))],
+    dependencies=[
+        Depends(rate_limit_dependency("register", settings.rate_limit_register_per_minute))
+    ],
 )
 async def register(
     payload: RegisterRequest,
@@ -41,7 +43,7 @@ async def register(
         session,
         email=payload.email,
         password=payload.password,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return TokenPairResponse(
@@ -66,7 +68,7 @@ async def login(
         session,
         email=payload.email,
         password=payload.password,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
 
@@ -74,6 +76,7 @@ async def login(
         return LoginResponse(requires_2fa=True, challenge_id=result.challenge_id)
 
     tokens = result.tokens
+    assert tokens is not None
     return LoginResponse(
         requires_2fa=False,
         tokens=TokenPairResponse(
@@ -100,7 +103,7 @@ async def verify_login_2fa(
         challenge_id=payload.challenge_id,
         totp_code=payload.totp_code,
         backup_code=payload.backup_code,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return TokenPairResponse(
@@ -114,7 +117,11 @@ async def verify_login_2fa(
     "/password/forgot",
     response_model=PasswordResetResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(rate_limit_dependency("password_reset", settings.rate_limit_password_reset_per_minute))],
+    dependencies=[
+        Depends(
+            rate_limit_dependency("password_reset", settings.rate_limit_password_reset_per_minute)
+        )
+    ],
 )
 async def request_password_reset(
     payload: PasswordResetRequest,
@@ -125,7 +132,7 @@ async def request_password_reset(
     await reset_service.request_reset(
         session,
         email=payload.email,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return PasswordResetResponse()
@@ -134,6 +141,14 @@ async def request_password_reset(
 @router.post(
     "/password/reset",
     response_model=PasswordResetResponse,
+    dependencies=[
+        Depends(
+            rate_limit_dependency(
+                "password_reset_confirm",
+                settings.rate_limit_password_reset_per_minute,
+            )
+        )
+    ],
 )
 async def reset_password(
     payload: PasswordResetConfirmRequest,
@@ -146,7 +161,7 @@ async def reset_password(
         email=payload.email,
         code=payload.code,
         new_password=payload.password,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return PasswordResetResponse()

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy.dialects import postgresql
-
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from sqlalchemy.dialects import postgresql
 
 
 def test_get_by_jti_for_update_statement_avoids_outer_join() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
 from fastapi import Request
@@ -9,7 +10,11 @@ from starlette.responses import Response
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid4())
         request.state.request_id = request_id
         started_at = time.perf_counter()
@@ -23,7 +28,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -56,5 +65,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "connect-src 'self';"
             )
         else:
-            response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; frame-ancestors 'none';"
+            )
         return response

@@ -14,6 +14,8 @@ from app.core.constants import (
     ROLE_USER,
 )
 from app.exceptions.auth import BadRequestException
+from app.models.permission import Permission
+from app.models.role import Role
 from app.repositories.rbac_repository import RBACRepository
 
 
@@ -64,7 +66,13 @@ class RBACService:
             permission_id=p_profile_write.id,
         )
 
-        for permission in (p_profile_read, p_profile_write, p_users_read, p_users_write, p_roles_assign):
+        for permission in (
+            p_profile_read,
+            p_profile_write,
+            p_users_read,
+            p_users_write,
+            p_roles_assign,
+        ):
             await self.repository.ensure_role_permission(
                 session,
                 role_id=admin_role.id,
@@ -77,7 +85,9 @@ class RBACService:
             raise RuntimeError("RBAC seed is not initialized")
         await self.repository.assign_role_to_user(session, user_id=user_id, role_id=role.id)
 
-    async def assign_role_by_name(self, session: AsyncSession, *, user_id: UUID, role_name: str) -> None:
+    async def assign_role_by_name(
+        self, session: AsyncSession, *, user_id: UUID, role_name: str
+    ) -> None:
         role = await self.repository.get_role_by_name(session, role_name)
         if role is None:
             raise BadRequestException("Unknown role")
@@ -87,7 +97,9 @@ class RBACService:
         roles = await self.repository.list_roles_for_user(session, user_id)
         return [role.name for role in roles]
 
-    async def list_permission_names_for_user(self, session: AsyncSession, *, user_id: UUID) -> list[str]:
+    async def list_permission_names_for_user(
+        self, session: AsyncSession, *, user_id: UUID
+    ) -> list[str]:
         return await self.repository.list_permission_names_for_user(session, user_id)
 
     async def permissions_set_for_user(self, session: AsyncSession, *, user_id: UUID) -> set[str]:
@@ -98,7 +110,7 @@ class RBACService:
         session: AsyncSession,
         role_name: str,
         description: str,
-    ):
+    ) -> Role:
         role = await self.repository.get_role_by_name(session, role_name)
         if role is not None:
             return role
@@ -113,7 +125,7 @@ class RBACService:
         session: AsyncSession,
         permission_name: str,
         description: str,
-    ):
+    ) -> Permission:
         permission = await self.repository.get_permission_by_name(session, permission_name)
         if permission is not None:
             return permission

@@ -43,6 +43,12 @@ class BruteForceProtectionService:
                 window_seconds=self.settings.brute_force_2fa_window_seconds,
                 lock_seconds=self.settings.brute_force_2fa_lock_seconds,
             )
+        if scope == "password_reset":
+            return BruteForcePolicy(
+                max_attempts=self.settings.brute_force_password_reset_max_attempts,
+                window_seconds=self.settings.brute_force_password_reset_window_seconds,
+                lock_seconds=self.settings.brute_force_password_reset_lock_seconds,
+            )
         raise ValueError(f"Unsupported brute-force scope: {scope}")
 
     async def assert_not_locked(self, *, scope: str, identifier: str) -> None:
@@ -50,7 +56,9 @@ class BruteForceProtectionService:
         is_locked = await self.redis.exists(lock_key)
         if is_locked:
             ttl = await self.redis.ttl(lock_key)
-            raise AccountLockedException(f"Too many failed attempts. Retry in {max(ttl, 1)} seconds")
+            raise AccountLockedException(
+                f"Too many failed attempts. Retry in {max(ttl, 1)} seconds"
+            )
 
     async def record_failure(self, *, scope: str, identifier: str) -> None:
         policy = self._policy(scope)

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 import pytest
-
 from app.core.config import get_settings
 from app.exceptions.two_factor import InvalidChallengeException
 from app.services.auth_service import AuthService
@@ -62,7 +61,9 @@ class FakePasswordService:
 
 
 class FakeRefreshTokenService:
-    async def issue_for_user(self, session, *, user_id: UUID, ip_address: str | None, user_agent: str | None):
+    async def issue_for_user(
+        self, session, *, user_id: UUID, ip_address: str | None, user_agent: str | None
+    ):
         _ = (session, user_id, ip_address, user_agent)
         return TokenPair(
             access_token="access",
@@ -74,7 +75,9 @@ class FakeRefreshTokenService:
 
 
 class FakeTwoFactorService:
-    async def verify_for_login(self, session, *, user, totp_code: str | None, backup_code: str | None) -> None:
+    async def verify_for_login(
+        self, session, *, user, totp_code: str | None, backup_code: str | None
+    ) -> None:
         _ = (session, user, backup_code)
         if totp_code != "123456":
             from app.exceptions.two_factor import InvalidTwoFactorCodeException

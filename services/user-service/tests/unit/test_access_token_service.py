@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import os
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import jwt
 import pytest
+from app.core.config import get_settings
+from app.core.security import AccessTokenService
+from app.exceptions.auth import UnauthorizedException
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-
-from app.core.config import get_settings
-from app.exceptions.auth import UnauthorizedException
-from app.core.security import AccessTokenService
 
 
 def _generate_rsa_keypair() -> tuple[str, str]:
@@ -21,10 +20,14 @@ def _generate_rsa_keypair() -> tuple[str, str]:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     ).decode("utf-8")
-    public_pem = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
     return private_pem, public_pem
 
 
@@ -40,9 +43,9 @@ async def test_decode_access_token_success() -> None:
         "type": "access",
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=10),
-        "iat": datetime.now(tz=timezone.utc),
-        "nbf": datetime.now(tz=timezone.utc),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=10),
+        "iat": datetime.now(tz=UTC),
+        "nbf": datetime.now(tz=UTC),
     }
     token = jwt.encode(payload, settings.jwt_public_key_value, algorithm=settings.jwt_algorithm)
 
@@ -64,9 +67,9 @@ async def test_decode_access_token_rejects_wrong_type() -> None:
         "type": "refresh",
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=10),
-        "iat": datetime.now(tz=timezone.utc),
-        "nbf": datetime.now(tz=timezone.utc),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=10),
+        "iat": datetime.now(tz=UTC),
+        "nbf": datetime.now(tz=UTC),
     }
     token = jwt.encode(payload, settings.jwt_public_key_value, algorithm=settings.jwt_algorithm)
 
@@ -91,9 +94,9 @@ async def test_decode_access_token_rs256_success() -> None:
         "type": "access",
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=10),
-        "iat": datetime.now(tz=timezone.utc),
-        "nbf": datetime.now(tz=timezone.utc),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=10),
+        "iat": datetime.now(tz=UTC),
+        "nbf": datetime.now(tz=UTC),
     }
     token = jwt.encode(payload, private_key, algorithm="RS256")
 

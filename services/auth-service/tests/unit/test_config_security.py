@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from app.core.config import Settings
 from cryptography.fernet import Fernet
 from pydantic import ValidationError
-
-from app.core.config import Settings
 
 
 def _set_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -14,6 +13,7 @@ def _set_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JWT_PUBLIC_KEY", "test-signing-key")
     monkeypatch.setenv("REFRESH_TOKEN_HASH_PEPPER", "x" * 40)
     monkeypatch.setenv("PRIVACY_KEY_PEPPER", "y" * 40)
+    monkeypatch.setenv("PASSWORD_RESET_TOKEN_PEPPER", "z" * 40)
     monkeypatch.setenv("TOTP_ENCRYPTION_KEY", Fernet.generate_key().decode("utf-8"))
 
 

@@ -20,7 +20,9 @@ class UserRepository:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def create(self, session: AsyncSession, *, user_id: UUID, external_subject: str) -> AppUser:
+    async def create(
+        self, session: AsyncSession, *, user_id: UUID, external_subject: str
+    ) -> AppUser:
         user = AppUser(id=user_id, external_subject=external_subject)
         session.add(user)
         session.add(UserProfile(user_id=user_id))

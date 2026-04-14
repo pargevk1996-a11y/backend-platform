@@ -1,11 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response
+from typing import cast
 
-from app.api.deps import get_access_token_service, get_rate_limiter, get_routing_service, get_settings_dep
+from fastapi import APIRouter, Depends, Request, Response
+from httpx._types import QueryParamTypes
+
+from app.api.deps import (
+    get_access_token_service,
+    get_rate_limiter,
+    get_routing_service,
+    get_settings_dep,
+)
 from app.core.config import Settings
 from app.core.rate_limit import RateLimiter
-from app.core.security import AccessTokenService, extract_bearer_token, is_public_endpoint
+from app.core.security import (
+    AccessTokenService,
+    extract_bearer_token,
+    get_client_ip,
+    is_public_endpoint,
+)
 from app.services.routing_service import RoutingService
 
 router = APIRouter(tags=["proxy"])
@@ -31,6 +44,7 @@ async def proxy_request(
     is_public = is_public_endpoint(method, path)
 
     headers = dict(request.headers)
+    client_ip = get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips)
     if is_public:
         await rate_limiter.check(
             request=request,
@@ -47,13 +61,14 @@ async def proxy_request(
         access_token_service.decode_access_token(token)
 
     body = await request.body()
-    query_params = list(request.query_params.multi_items())
+    query_params = cast(QueryParamTypes, list(request.query_params.multi_items()))
     proxied = await routing_service.forward(
         method=method,
         path=path,
         params=query_params,
         headers=headers,
         body=body,
+        client_ip=client_ip,
     )
 
     return Response(

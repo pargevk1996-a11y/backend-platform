@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import cast
 
 from fastapi import Request
 from redis.asyncio import Redis
@@ -31,4 +32,4 @@ async def get_routing_service(request: Request) -> RoutingService:
     routing_service = getattr(request.app.state, "routing_service", None)
     if routing_service is None:
         raise RuntimeError("Routing service is not initialized")
-    return routing_service
+    return cast(RoutingService, routing_service)

@@ -91,6 +91,11 @@ button {
   font-family: inherit;
 }
 
+button:disabled,
+input:disabled {
+  opacity: 0.55;
+}
+
 textarea {
   min-height: 110px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

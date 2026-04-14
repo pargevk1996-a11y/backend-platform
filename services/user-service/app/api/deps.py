@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from fastapi import Depends, Request
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -73,6 +74,7 @@ async def get_current_context(
     session: AsyncSession = Depends(get_session),
     token_service: AccessTokenService = Depends(get_access_token_service),
     user_service: UserService = Depends(get_user_service),
+    settings: Settings = Depends(get_settings_dep),
 ) -> UserContext:
     token = extract_bearer_token(request)
     claims = token_service.decode_access_token(token)
@@ -80,7 +82,7 @@ async def get_current_context(
     context = await user_service.context_for_subject(
         session,
         subject=claims.sub,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
 
@@ -105,5 +107,5 @@ async def get_audit_service_dep() -> AuditService:
     return get_audit_service()
 
 
-async def get_redis_dep(request: Request):
+async def get_redis_dep(request: Request) -> Redis:
     return await get_redis(request)

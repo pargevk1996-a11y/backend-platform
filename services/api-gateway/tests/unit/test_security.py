@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import os
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import jwt
 import pytest
+from app.core.config import get_settings
+from app.core.security import AccessTokenService, get_client_ip, is_public_endpoint
+from app.exceptions.gateway import UnauthorizedException
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-
-from app.core.config import get_settings
-from app.core.security import AccessTokenService, is_public_endpoint
-from app.exceptions.gateway import UnauthorizedException
 
 
 def _generate_rsa_keypair() -> tuple[str, str]:
@@ -21,10 +21,14 @@ def _generate_rsa_keypair() -> tuple[str, str]:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     ).decode("utf-8")
-    public_pem = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
     return private_pem, public_pem
 
 
@@ -40,9 +44,9 @@ async def test_decode_access_token_success() -> None:
         "type": "access",
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=10),
-        "iat": datetime.now(tz=timezone.utc),
-        "nbf": datetime.now(tz=timezone.utc),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=10),
+        "iat": datetime.now(tz=UTC),
+        "nbf": datetime.now(tz=UTC),
     }
     token = jwt.encode(payload, settings.jwt_public_key_value, algorithm=settings.jwt_algorithm)
 
@@ -62,9 +66,9 @@ async def test_decode_access_token_rejects_invalid_type() -> None:
         "type": "refresh",
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=10),
-        "iat": datetime.now(tz=timezone.utc),
-        "nbf": datetime.now(tz=timezone.utc),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=10),
+        "iat": datetime.now(tz=UTC),
+        "nbf": datetime.now(tz=UTC),
     }
     token = jwt.encode(payload, settings.jwt_public_key_value, algorithm=settings.jwt_algorithm)
 
@@ -89,9 +93,9 @@ async def test_decode_access_token_rs256_success() -> None:
         "type": "access",
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=10),
-        "iat": datetime.now(tz=timezone.utc),
-        "nbf": datetime.now(tz=timezone.utc),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=10),
+        "iat": datetime.now(tz=UTC),
+        "nbf": datetime.now(tz=UTC),
     }
     token = jwt.encode(payload, private_key, algorithm="RS256")
 
@@ -105,3 +109,30 @@ async def test_decode_access_token_rs256_success() -> None:
 async def test_public_endpoint_detection() -> None:
     assert is_public_endpoint("POST", "/v1/auth/login") is True
     assert is_public_endpoint("GET", "/v1/users/me") is False
+
+
+def test_client_ip_ignores_untrusted_forwarded_header() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.10"},
+        client=SimpleNamespace(host="198.51.100.20"),
+    )
+
+    assert get_client_ip(request) == "198.51.100.20"
+
+
+def test_client_ip_honors_trusted_proxy_forwarded_header() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.10, 198.51.100.20"},
+        client=SimpleNamespace(host="10.0.0.10"),
+    )
+
+    assert get_client_ip(request, trusted_proxy_ips=["10.0.0.10"]) == "203.0.113.10"
+
+
+def test_client_ip_honors_trusted_proxy_cidr() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.10"},
+        client=SimpleNamespace(host="172.20.0.7"),
+    )
+
+    assert get_client_ip(request, trusted_proxy_ips=["172.16.0.0/12"]) == "203.0.113.10"

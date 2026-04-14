@@ -14,6 +14,7 @@ from app.api.v1.roles import router as roles_router
 from app.api.v1.users import router as users_router
 from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.validation import sanitize_validation_errors
 from app.exceptions.base import AppException
 from app.lifecycle import lifespan
 from app.schemas.common import ErrorResponse
@@ -46,14 +47,16 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
     payload = ErrorResponse(
         error_code="VALIDATION_ERROR",
         message="Request validation failed",
         request_id=request_id,
     )
-    LOGGER.info("validation_error", extra={"errors": exc.errors()})
+    LOGGER.info("validation_error", extra={"errors": sanitize_validation_errors(exc.errors())})
     return JSONResponse(status_code=422, content=payload.model_dump())
 
 

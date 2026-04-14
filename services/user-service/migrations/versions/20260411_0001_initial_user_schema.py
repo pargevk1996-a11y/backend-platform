@@ -24,12 +24,18 @@ def upgrade() -> None:
         sa.Column("external_subject", sa.String(length=64), nullable=False),
         sa.Column("email", sa.String(length=320), nullable=True),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_app_users")),
         sa.UniqueConstraint("external_subject", name=op.f("uq_app_users_external_subject")),
     )
-    op.create_index(op.f("ix_app_users_external_subject"), "app_users", ["external_subject"], unique=True)
+    op.create_index(
+        op.f("ix_app_users_external_subject"), "app_users", ["external_subject"], unique=True
+    )
 
     op.create_table(
         "user_profiles",
@@ -39,9 +45,18 @@ def upgrade() -> None:
         sa.Column("locale", sa.String(length=16), nullable=False, server_default="en-US"),
         sa.Column("timezone", sa.String(length=64), nullable=False, server_default="UTC"),
         sa.Column("avatar_url", sa.String(length=512), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(["user_id"], ["app_users.id"], name=op.f("fk_user_profiles_user_id_app_users"), ondelete="CASCADE"),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["app_users.id"],
+            name=op.f("fk_user_profiles_user_id_app_users"),
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_user_profiles")),
         sa.UniqueConstraint("user_id", name=op.f("uq_user_profiles_user_id")),
     )
@@ -51,7 +66,9 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(length=64), nullable=False),
         sa.Column("description", sa.String(length=255), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_roles")),
         sa.UniqueConstraint("name", name=op.f("uq_roles_name")),
     )
@@ -62,7 +79,9 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(length=128), nullable=False),
         sa.Column("description", sa.String(length=255), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_permissions")),
         sa.UniqueConstraint("name", name=op.f("uq_permissions_name")),
     )
@@ -73,9 +92,18 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(["role_id"], ["roles.id"], name=op.f("fk_user_roles_role_id_roles"), ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["app_users.id"], name=op.f("fk_user_roles_user_id_app_users"), ondelete="CASCADE"),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.ForeignKeyConstraint(
+            ["role_id"], ["roles.id"], name=op.f("fk_user_roles_role_id_roles"), ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["app_users.id"],
+            name=op.f("fk_user_roles_user_id_app_users"),
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_user_roles")),
         sa.UniqueConstraint("user_id", "role_id", name="uq_user_roles_user_id_role_id"),
     )
@@ -87,14 +115,35 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("permission_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(["permission_id"], ["permissions.id"], name=op.f("fk_role_permissions_permission_id_permissions"), ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["role_id"], ["roles.id"], name=op.f("fk_role_permissions_role_id_roles"), ondelete="CASCADE"),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.ForeignKeyConstraint(
+            ["permission_id"],
+            ["permissions.id"],
+            name=op.f("fk_role_permissions_permission_id_permissions"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["role_id"],
+            ["roles.id"],
+            name=op.f("fk_role_permissions_role_id_roles"),
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_role_permissions")),
-        sa.UniqueConstraint("role_id", "permission_id", name="uq_role_permissions_role_id_permission_id"),
+        sa.UniqueConstraint(
+            "role_id", "permission_id", name="uq_role_permissions_role_id_permission_id"
+        ),
     )
-    op.create_index(op.f("ix_role_permissions_role_id"), "role_permissions", ["role_id"], unique=False)
-    op.create_index(op.f("ix_role_permissions_permission_id"), "role_permissions", ["permission_id"], unique=False)
+    op.create_index(
+        op.f("ix_role_permissions_role_id"), "role_permissions", ["role_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_role_permissions_permission_id"),
+        "role_permissions",
+        ["permission_id"],
+        unique=False,
+    )
 
     op.create_table(
         "audit_events",
@@ -105,11 +154,20 @@ def upgrade() -> None:
         sa.Column("target_user_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("ip_address", sa.String(length=64), nullable=True),
         sa.Column("user_agent", sa.String(length=512), nullable=True),
-        sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "payload",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_events")),
     )
-    op.create_index(op.f("ix_audit_events_event_type"), "audit_events", ["event_type"], unique=False)
+    op.create_index(
+        op.f("ix_audit_events_event_type"), "audit_events", ["event_type"], unique=False
+    )
 
 
 def downgrade() -> None:

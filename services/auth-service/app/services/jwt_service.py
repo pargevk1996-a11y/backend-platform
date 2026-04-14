@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import jwt
@@ -31,7 +31,7 @@ class JWTService:
         return uuid4()
 
     def issue_access_token(self, *, subject: UUID, session_id: UUID) -> tuple[str, int]:
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         exp = now + timedelta(seconds=self.settings.jwt_access_ttl_seconds)
         payload: dict[str, str | int | datetime] = {
             "sub": str(subject),
@@ -55,7 +55,7 @@ class JWTService:
         family_id: UUID,
         jti: UUID,
     ) -> tuple[str, datetime]:
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         exp = now + timedelta(seconds=self.settings.jwt_refresh_ttl_seconds)
         payload: dict[str, str | int | datetime] = {
             "sub": str(subject),

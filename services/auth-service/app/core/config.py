@@ -7,7 +7,17 @@ from cryptography.fernet import Fernet
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-ALLOWED_JWT_ALGORITHMS = {"HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}
+ALLOWED_JWT_ALGORITHMS = {
+    "HS256",
+    "HS384",
+    "HS512",
+    "RS256",
+    "RS384",
+    "RS512",
+    "ES256",
+    "ES384",
+    "ES512",
+}
 MIN_SECRET_LENGTH = 32
 
 
@@ -25,6 +35,7 @@ class Settings(BaseSettings):
     service_env: Literal["development", "staging", "production"] = "development"
     service_port: int = 8001
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     database_url: str = Field(alias="DATABASE_URL")
     redis_url: str = Field(alias="REDIS_URL")
@@ -64,6 +75,10 @@ class Settings(BaseSettings):
     brute_force_2fa_window_seconds: int = 300
     brute_force_2fa_lock_seconds: int = 900
 
+    brute_force_password_reset_max_attempts: int = 5
+    brute_force_password_reset_window_seconds: int = 300
+    brute_force_password_reset_lock_seconds: int = 900
+
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
@@ -95,6 +110,15 @@ class Settings(BaseSettings):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value
 
+    @field_validator("trusted_proxy_ips", mode="before")
+    @classmethod
+    def _parse_trusted_proxy_ips(cls, value: str | list[str] | None) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
+
     @field_validator("jwt_algorithm")
     @classmethod
     def _validate_jwt_algorithm(cls, value: str) -> str:
@@ -103,7 +127,9 @@ class Settings(BaseSettings):
             raise ValueError(f"Unsupported JWT algorithm: {normalized}")
         return normalized
 
-    @field_validator("refresh_token_hash_pepper", "privacy_key_pepper", "password_reset_token_pepper")
+    @field_validator(
+        "refresh_token_hash_pepper", "privacy_key_pepper", "password_reset_token_pepper"
+    )
     @classmethod
     def _validate_pepper_length(cls, value: SecretStr) -> SecretStr:
         if len(value.get_secret_value()) < MIN_SECRET_LENGTH:
@@ -175,4 +201,4 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # type: ignore[call-arg]

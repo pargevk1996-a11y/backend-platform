@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 
-import qrcode
+import qrcode  # type: ignore[import-untyped]
 
 
 def generate_qr_png_base64(data: str) -> str:

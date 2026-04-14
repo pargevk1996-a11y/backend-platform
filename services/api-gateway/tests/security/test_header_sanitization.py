@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import httpx
 import pytest
-
 from app.clients.auth_client import AuthClient
 from app.clients.notification_client import NotificationClient
 from app.clients.user_client import UserClient
@@ -22,6 +21,8 @@ async def test_hop_by_hop_headers_are_removed() -> None:
             {
                 "Host": "example.com",
                 "Connection": "keep-alive",
+                "X-Forwarded-For": "203.0.113.10",
+                "X-Real-IP": "203.0.113.11",
                 "Authorization": "Bearer token",
                 "Content-Type": "application/json",
             }
@@ -31,3 +32,5 @@ async def test_hop_by_hop_headers_are_removed() -> None:
         assert "Content-Type" in sanitized
         assert "Host" not in sanitized
         assert "Connection" not in sanitized
+        assert "X-Forwarded-For" not in sanitized
+        assert "X-Real-IP" not in sanitized

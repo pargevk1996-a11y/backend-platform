@@ -5,9 +5,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_context, get_rbac_service_dep, get_user_service_dep
+from app.api.deps import (
+    get_audit_service_dep,
+    get_current_context,
+    get_rbac_service_dep,
+    get_user_service_dep,
+)
 from app.core.config import get_settings
-from app.core.constants import PERMISSION_ROLES_ASSIGN
+from app.core.constants import AUDIT_ROLE_ASSIGNED, PERMISSION_ROLES_ASSIGN
 from app.core.rate_limit import rate_limit_dependency
 from app.core.security import ensure_permission, get_client_ip
 from app.db.session import get_session
@@ -16,8 +21,6 @@ from app.schemas.roles import AssignRoleRequest, RolesResponse
 from app.services.audit_service import AuditService
 from app.services.rbac_service import RBACService
 from app.services.user_service import UserContext, UserService
-from app.core.constants import AUDIT_ROLE_ASSIGNED
-from app.api.deps import get_audit_service_dep
 
 settings = get_settings()
 router = APIRouter(prefix="/roles", tags=["roles"])
@@ -63,7 +66,7 @@ async def assign_role(
         outcome="success",
         actor_user_id=context.user.id,
         target_user_id=user_id,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
         payload={"role_name": payload.role_name},
     )

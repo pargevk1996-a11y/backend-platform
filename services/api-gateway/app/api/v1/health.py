@@ -31,6 +31,8 @@ async def readiness(request: Request) -> HealthResponse:
             if response.status_code >= 500:
                 raise HTTPException(status_code=503, detail=f"Upstream {service_url} unavailable")
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=503, detail=f"Upstream {service_url} unavailable") from exc
+            raise HTTPException(
+                status_code=503, detail=f"Upstream {service_url} unavailable"
+            ) from exc
 
     return HealthResponse(status="ok")

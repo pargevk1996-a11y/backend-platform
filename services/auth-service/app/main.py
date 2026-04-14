@@ -14,6 +14,7 @@ from app.api.v1.tokens import router as tokens_router
 from app.api.v1.two_factor import router as two_factor_router
 from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.validation import sanitize_validation_errors
 from app.exceptions.base import AppException
 from app.lifecycle import lifespan
 from app.schemas.common import ErrorResponse
@@ -34,7 +35,13 @@ app.add_middleware(
     allow_origins=settings.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key", "X-CSRF-Token"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "Idempotency-Key",
+        "X-CSRF-Token",
+    ],
 )
 
 
@@ -46,14 +53,16 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
     payload = ErrorResponse(
         error_code="VALIDATION_ERROR",
         message="Request validation failed",
         request_id=request_id,
     )
-    LOGGER.info("validation_error", extra={"errors": exc.errors()})
+    LOGGER.info("validation_error", extra={"errors": sanitize_validation_errors(exc.errors())})
     return JSONResponse(status_code=422, content=payload.model_dump())
 
 

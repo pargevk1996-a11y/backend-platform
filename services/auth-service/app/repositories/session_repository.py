@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -32,16 +32,20 @@ class SessionRepository:
     async def revoke_family(self, session: AsyncSession, refresh_family_id: UUID) -> None:
         stmt = (
             update(UserSession)
-            .where(UserSession.refresh_family_id == refresh_family_id, UserSession.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(tz=timezone.utc))
+            .where(
+                UserSession.refresh_family_id == refresh_family_id, UserSession.revoked_at.is_(None)
+            )
+            .values(revoked_at=datetime.now(tz=UTC))
         )
         await session.execute(stmt)
 
     async def touch_family(self, session: AsyncSession, refresh_family_id: UUID) -> None:
         stmt = (
             update(UserSession)
-            .where(UserSession.refresh_family_id == refresh_family_id, UserSession.revoked_at.is_(None))
-            .values(last_seen_at=datetime.now(tz=timezone.utc))
+            .where(
+                UserSession.refresh_family_id == refresh_family_id, UserSession.revoked_at.is_(None)
+            )
+            .values(last_seen_at=datetime.now(tz=UTC))
         )
         await session.execute(stmt)
 
@@ -61,6 +65,6 @@ class SessionRepository:
         stmt = (
             update(UserSession)
             .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(tz=timezone.utc))
+            .values(revoked_at=datetime.now(tz=UTC))
         )
         await session.execute(stmt)

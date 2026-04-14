@@ -64,6 +64,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://auth_service:${AUTH_DB_PASSWORD}@postgres-auth:5432/auth_service
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SERVICE_ENV: production
+      COOKIE_SECURE: "true"
+      TRUSTED_PROXY_IPS: 172.16.0.0/12
     depends_on:
       postgres-auth:
         condition: service_healthy
@@ -96,6 +98,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://user_service:${USER_DB_PASSWORD}@postgres-user:5432/user_service
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       SERVICE_ENV: production
+      TRUSTED_PROXY_IPS: 172.16.0.0/12
     depends_on:
       postgres-user:
         condition: service_healthy

@@ -11,7 +11,7 @@
       <div class="hero__media" role="img" aria-label="Abstract geometric background"></div>
       <div class="hero__content">
         <div class="hero__title">Authentication Console</div>
-        <div class="hero__subtitle">Google Authenticator required for 2FA setup.</div>
+        <div class="hero__subtitle">Google Authenticator can be enabled after sign-in.</div>
         <div class="hero__row">
           <div class="hero__field">
             <label for="baseUrl">Gateway URL</label>
@@ -35,7 +35,7 @@
           <button id="chooseReset" class="choice-btn">Reset password</button>
         </div>
         <div id="formGuide" class="guide">
-          Register: enter your email and password, then click "Create account". After that you can create a QR once and enable 2FA.
+          Register: enter your email and password, then click "Create account". You can enable 2FA after the account is created.
         </div>
 
         <div id="formRegister" class="form" autocomplete="off">
@@ -96,7 +96,7 @@
       <aside class="panel panel--right">
         <div class="section-title">Google Authenticator</div>
         <div class="note" id="setupNote">
-          Create QR is available only right after registration.
+          Sign in or create an account to enable 2FA.
         </div>
         <div class="row">
           <button id="setup2faBtn" class="btn btn--ghost" disabled>Create QR for Google Authenticator</button>
@@ -125,6 +125,6 @@
       </aside>
     </main>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=20260414-contract-fixes"></script>
   </body>
 </html>

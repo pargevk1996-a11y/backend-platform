@@ -26,7 +26,9 @@ def upgrade() -> None:
         sa.Column("token_hash", sa.String(length=128), nullable=False),
         sa.Column("requested_ip", sa.String(length=64), nullable=True),
         sa.Column("requested_user_agent", sa.String(length=512), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(

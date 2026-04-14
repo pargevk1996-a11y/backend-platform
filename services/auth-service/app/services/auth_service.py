@@ -131,6 +131,7 @@ class AuthService:
             await session.commit()
             raise InvalidCredentialsException()
 
+        assert user is not None
         await self.brute_force_service.clear_failures(scope="login", identifier=identifier)
 
         if user.two_factor_enabled:
@@ -176,7 +177,9 @@ class AuthService:
         challenge = await self._get_login_challenge(challenge_id)
         if challenge is None:
             raise InvalidChallengeException()
-        if not self._challenge_context_matches(challenge, ip_address=ip_address, user_agent=user_agent):
+        if not self._challenge_context_matches(
+            challenge, ip_address=ip_address, user_agent=user_agent
+        ):
             await self.brute_force_service.record_failure(scope="2fa", identifier=identifier)
             await self._delete_login_challenge(challenge_id)
             await self.audit_service.log_event(
@@ -371,4 +374,6 @@ class AuthService:
 
         actual_ip = self._context_fingerprint(ip_address)
         actual_ua = self._context_fingerprint(user_agent)
-        return hmac.compare_digest(expected_ip, actual_ip) and hmac.compare_digest(expected_ua, actual_ua)
+        return hmac.compare_digest(expected_ip, actual_ip) and hmac.compare_digest(
+            expected_ua, actual_ua
+        )

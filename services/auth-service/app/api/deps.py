@@ -11,6 +11,7 @@ from app.core.constants import TOKEN_TYPE_ACCESS
 from app.core.security import extract_bearer_token
 from app.db.session import get_session
 from app.exceptions.auth import UnauthorizedException
+from app.integrations.email.provider import EmailProvider
 from app.integrations.redis.client import get_redis
 from app.models.user import User
 from app.repositories.audit_repository import AuditRepository
@@ -23,12 +24,11 @@ from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.brute_force_protection_service import BruteForceProtectionService
 from app.services.jwt_service import JWTService
-from app.services.password_service import PasswordService
 from app.services.password_reset_service import PasswordResetService
+from app.services.password_service import PasswordService
 from app.services.refresh_token_service import RefreshTokenService
 from app.services.session_service import SessionService
 from app.services.two_factor_service import TwoFactorService
-from app.integrations.email.provider import EmailProvider
 
 
 @lru_cache(maxsize=1)
@@ -142,6 +142,7 @@ async def get_auth_service(
 
 
 async def get_password_reset_service(
+    request: Request,
     settings: Settings = Depends(get_settings_dep),
     user_repository: UserRepository = Depends(get_user_repository),
     password_service: PasswordService = Depends(get_password_service),
@@ -151,6 +152,8 @@ async def get_password_reset_service(
     email_provider: EmailProvider = Depends(get_email_provider),
     audit_service: AuditService = Depends(get_audit_service),
 ) -> PasswordResetService:
+    redis = await get_redis(request)
+    brute_force_service = BruteForceProtectionService(redis=redis, settings=settings)
     return PasswordResetService(
         settings=settings,
         user_repository=user_repository,
@@ -160,6 +163,7 @@ async def get_password_reset_service(
         session_service=session_service,
         email_provider=email_provider,
         audit_service=audit_service,
+        brute_force_service=brute_force_service,
     )
 
 

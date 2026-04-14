@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hmac
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID, uuid4
 
@@ -133,7 +133,7 @@ class RefreshTokenService:
         if not family_active:
             raise InvalidTokenException("Session is revoked")
 
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         if token_record.expires_at < now:
             raise InvalidTokenException("Refresh token expired")
 

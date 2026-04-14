@@ -7,18 +7,18 @@ from app.api.deps import (
     get_audit_service,
     get_current_user,
     get_password_service,
-    get_session,
     get_two_factor_service,
 )
 from app.core.config import get_settings
-from app.core.rate_limit import rate_limit_dependency
 from app.core.constants import (
     AUDIT_2FA_DISABLED,
     AUDIT_2FA_ENABLED,
     AUDIT_2FA_SETUP_INITIATED,
     AUDIT_BACKUP_CODES_REGENERATED,
 )
+from app.core.rate_limit import rate_limit_dependency
 from app.core.security import get_client_ip
+from app.db.session import get_session
 from app.exceptions.auth import InvalidCredentialsException
 from app.models.user import User
 from app.schemas.common import MessageResponse
@@ -53,11 +53,13 @@ async def setup_two_factor(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
     return TwoFactorSetupResponse(
+        secret=setup_data.secret,
+        provisioning_uri=setup_data.provisioning_uri,
         qr_png_base64=setup_data.qr_png_base64,
     )
 
@@ -83,7 +85,7 @@ async def enable_two_factor(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
@@ -116,7 +118,7 @@ async def disable_two_factor(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
@@ -145,7 +147,7 @@ async def regenerate_backup_codes(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request),
+        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()

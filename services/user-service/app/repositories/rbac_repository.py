@@ -91,7 +91,9 @@ class RBACRepository:
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def list_permission_names_for_user(self, session: AsyncSession, user_id: UUID) -> list[str]:
+    async def list_permission_names_for_user(
+        self, session: AsyncSession, user_id: UUID
+    ) -> list[str]:
         stmt = (
             select(Permission.name)
             .join(RolePermission, RolePermission.permission_id == Permission.id)

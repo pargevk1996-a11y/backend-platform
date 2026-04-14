@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
+from httpx._types import QueryParamTypes
 
 from app.clients.auth_client import AuthClient
 from app.clients.notification_client import NotificationClient
 from app.clients.user_client import UserClient
 from app.exceptions.gateway import RouteNotFoundException, UpstreamServiceException
-
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -19,6 +19,12 @@ HOP_BY_HOP_HEADERS = {
     "trailers",
     "transfer-encoding",
     "upgrade",
+}
+
+FORWARDED_HEADERS = {
+    "forwarded",
+    "x-forwarded-for",
+    "x-real-ip",
 }
 
 
@@ -43,16 +49,16 @@ class RoutingService:
         self.user_client = user_client
         self.notification_client = notification_client
 
-    def resolve_service(self, path: str):
-        if path.startswith("/v1/auth") or path.startswith("/v1/tokens"):
+    def resolve_service(self, path: str) -> AuthClient | UserClient | NotificationClient:
+        if path.startswith(("/v1/auth", "/v1/tokens")):
             return self.auth_client
-        if path.startswith("/v1/two-factor") or path.startswith("/v1/sessions"):
+        if path.startswith(("/v1/two-factor", "/v1/sessions")):
             return self.auth_client
-        if path.startswith("/v1/users") or path.startswith("/v1/profiles"):
+        if path.startswith(("/v1/users", "/v1/profiles")):
             return self.user_client
-        if path.startswith("/v1/roles") or path.startswith("/v1/permissions"):
+        if path.startswith(("/v1/roles", "/v1/permissions")):
             return self.user_client
-        if path.startswith("/v1/notify"):
+        if path.startswith("/v1/notify") and self.notification_client.is_configured:
             return self.notification_client
         raise RouteNotFoundException()
 
@@ -61,12 +67,15 @@ class RoutingService:
         *,
         method: str,
         path: str,
-        params: list[tuple[str, str]] | None,
+        params: QueryParamTypes,
         headers: dict[str, str],
         body: bytes,
+        client_ip: str | None = None,
     ) -> ProxiedResponse:
         target_client = self.resolve_service(path)
         safe_headers = self._sanitize_request_headers(headers)
+        if client_ip:
+            safe_headers["X-Forwarded-For"] = client_ip
 
         try:
             response = await target_client.request(
@@ -91,7 +100,12 @@ class RoutingService:
         safe: dict[str, str] = {}
         for key, value in headers.items():
             lower = key.lower()
-            if lower in HOP_BY_HOP_HEADERS or lower == "host" or lower == "content-length":
+            if (
+                lower in HOP_BY_HOP_HEADERS
+                or lower in FORWARDED_HEADERS
+                or lower == "host"
+                or lower == "content-length"
+            ):
                 continue
             safe[key] = value
         return safe

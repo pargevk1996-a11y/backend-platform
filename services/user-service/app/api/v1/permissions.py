@@ -10,5 +10,7 @@ router = APIRouter(prefix="/permissions", tags=["permissions"])
 
 
 @router.get("/me", response_model=PermissionsResponse)
-async def my_permissions(context: UserContext = Depends(get_current_context)) -> PermissionsResponse:
+async def my_permissions(
+    context: UserContext = Depends(get_current_context),
+) -> PermissionsResponse:
     return PermissionsResponse(permissions=sorted(context.permissions))

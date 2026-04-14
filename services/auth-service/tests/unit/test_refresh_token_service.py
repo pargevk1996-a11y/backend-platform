@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
-
 from app.core.config import get_settings
 from app.services.jwt_service import JWTService
 from app.services.refresh_token_service import RefreshTokenService
@@ -41,19 +40,21 @@ class FakeRefreshRepo:
         return self.records.get(jti)
 
     async def mark_rotated(self, session, *, token: FakeRefreshRecord, replaced_by_jti: UUID):
-        token.rotated_at = datetime.now(tz=timezone.utc)
-        token.revoked_at = datetime.now(tz=timezone.utc)
+        token.rotated_at = datetime.now(tz=UTC)
+        token.revoked_at = datetime.now(tz=UTC)
         token.revocation_reason = "rotated"
         token.replaced_by_jti = replaced_by_jti
 
     async def revoke_family(self, session, family_id: UUID, reason: str):
         for record in self.records.values():
             if record.family_id == family_id and record.revoked_at is None:
-                record.revoked_at = datetime.now(tz=timezone.utc)
+                record.revoked_at = datetime.now(tz=UTC)
                 record.revocation_reason = reason
 
-    async def revoke_token(self, session, *, token: FakeRefreshRecord, reason: str, replaced_by_jti=None):
-        token.revoked_at = datetime.now(tz=timezone.utc)
+    async def revoke_token(
+        self, session, *, token: FakeRefreshRecord, reason: str, replaced_by_jti=None
+    ):
+        token.revoked_at = datetime.now(tz=UTC)
         token.revocation_reason = reason
         token.replaced_by_jti = replaced_by_jti
 

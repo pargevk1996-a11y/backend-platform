@@ -60,6 +60,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://auth_service:${AUTH_DB_PASSWORD}@postgres-auth:5432/auth_service
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SERVICE_ENV: development
+      TRUSTED_PROXY_IPS: 172.16.0.0/12
     ports:
       - "8001:8001"
     depends_on:
@@ -84,6 +85,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://user_service:${USER_DB_PASSWORD}@postgres-user:5432/user_service
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       SERVICE_ENV: development
+      TRUSTED_PROXY_IPS: 172.16.0.0/12
     ports:
       - "8002:8002"
     depends_on:

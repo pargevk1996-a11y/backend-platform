@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 import pytest
-
 from app.core.constants import ROLE_USER
 from app.services.rbac_service import RBACService
 
@@ -59,7 +58,9 @@ class FakeRBACRepository:
     async def list_permission_names_for_user(self, session, user_id: UUID):
         role_ids = {role_id for uid, role_id in self.user_roles if uid == user_id}
         permission_ids = {pid for rid, pid in self.role_permissions if rid in role_ids}
-        return sorted([perm.name for perm in self.permissions.values() if perm.id in permission_ids])
+        return sorted(
+            [perm.name for perm in self.permissions.values() if perm.id in permission_ids]
+        )
 
 
 @pytest.mark.asyncio

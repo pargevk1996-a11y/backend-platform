@@ -3,7 +3,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from app.core.config import get_settings
 from app.core.constants import TOKEN_TYPE_ACCESS
 from app.exceptions.token import InvalidTokenException

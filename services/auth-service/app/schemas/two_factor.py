@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class TwoFactorSetupResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    secret: str
+    provisioning_uri: str
     qr_png_base64: str
 
 

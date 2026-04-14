@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Response
 
@@ -20,7 +20,7 @@ def set_auth_cookies(
     refresh_token: str,
     csrf_token: str,
 ) -> None:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     access_exp = now + timedelta(seconds=settings.jwt_access_ttl_seconds)
     refresh_exp = now + timedelta(seconds=settings.jwt_refresh_ttl_seconds)
 
@@ -57,7 +57,11 @@ def set_auth_cookies(
 
 
 def clear_auth_cookies(response: Response, *, settings: Settings) -> None:
-    for key in (settings.access_cookie_name, settings.refresh_cookie_name, settings.csrf_cookie_name):
+    for key in (
+        settings.access_cookie_name,
+        settings.refresh_cookie_name,
+        settings.csrf_cookie_name,
+    ):
         response.delete_cookie(
             key=key,
             path="/",

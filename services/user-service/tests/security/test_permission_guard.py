@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from app.core.security import ensure_permission
 from app.exceptions.auth import ForbiddenException
 

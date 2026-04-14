@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import Select
 from sqlalchemy.orm import lazyload
+from sqlalchemy.sql import Select
 
 from app.models.password_reset_token import PasswordResetToken
 
@@ -41,6 +41,23 @@ class PasswordResetRepository:
         session.add(token)
         await session.flush()
         return token
+
+    async def mark_active_for_user_used(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        used_at: datetime,
+    ) -> None:
+        stmt = (
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user_id,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=used_at)
+        )
+        await session.execute(stmt)
 
     async def get_active_for_user_by_hash(
         self,
