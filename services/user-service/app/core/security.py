@@ -7,10 +7,12 @@ from uuid import UUID
 import jwt
 from fastapi import Request
 from jwt import InvalidTokenError
+from redis.asyncio import Redis
 
 from app.core.config import Settings
 from app.core.constants import TOKEN_TYPE_ACCESS
 from app.exceptions.auth import ForbiddenException, UnauthorizedException
+from app.integrations.redis.keys import access_session_revoked_key
 
 
 @dataclass(slots=True, frozen=True)
@@ -36,7 +38,17 @@ class AccessTokenService:
                 audience=self.settings.jwt_audience,
                 issuer=self.settings.jwt_issuer,
                 options={
-                    "require": ["sub", "jti", "sid", "type", "iss", "aud", "exp"],
+                    "require": [
+                        "sub",
+                        "jti",
+                        "sid",
+                        "type",
+                        "iss",
+                        "aud",
+                        "iat",
+                        "nbf",
+                        "exp",
+                    ],
                 },
             )
         except InvalidTokenError as exc:
@@ -59,6 +71,11 @@ class AccessTokenService:
             sid=sid,
             token_type=token_type,
         )
+
+
+async def ensure_access_session_active(redis: Redis, session_id: UUID) -> None:
+    if await redis.exists(access_session_revoked_key(str(session_id))):
+        raise UnauthorizedException("Access session revoked")
 
 
 def _is_trusted_proxy(client_host: str | None, trusted_proxy_ips: list[str] | None) -> bool:

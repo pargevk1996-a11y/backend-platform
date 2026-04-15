@@ -102,10 +102,23 @@ class FakeRefreshTokenRepository:
 class FakeSessionService:
     def __init__(self) -> None:
         self.revoked_for_user: UUID | None = None
+        self.active_session_ids = [uuid4(), uuid4()]
+
+    async def list_active_session_ids_for_user(self, session, user_id: UUID) -> list[UUID]:
+        _ = (session, user_id)
+        return self.active_session_ids
 
     async def revoke_user_sessions(self, session, user_id: UUID) -> None:
         _ = session
         self.revoked_for_user = user_id
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.values: dict[str, tuple[str, int | None]] = {}
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.values[key] = (value, ex)
 
 
 class FakeEmailProvider:
@@ -140,6 +153,7 @@ def _build_service(user: FakeUser | None):
     reset_repository = FakePasswordResetRepository()
     refresh_repository = FakeRefreshTokenRepository()
     session_service = FakeSessionService()
+    redis = FakeRedis()
     email_provider = FakeEmailProvider()
     brute_force_service = FakeBruteForceService()
     service = PasswordResetService(
@@ -149,6 +163,7 @@ def _build_service(user: FakeUser | None):
         password_reset_repository=reset_repository,
         refresh_token_repository=refresh_repository,
         session_service=session_service,
+        redis=redis,
         email_provider=email_provider,
         audit_service=FakeAuditService(),
         brute_force_service=brute_force_service,
@@ -158,6 +173,7 @@ def _build_service(user: FakeUser | None):
         reset_repository,
         refresh_repository,
         session_service,
+        redis,
         email_provider,
         brute_force_service,
     )
@@ -199,6 +215,7 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
         reset_repository,
         refresh_repository,
         session_service,
+        redis,
         _email_provider,
         brute_force_service,
     ) = _build_service(user)
@@ -221,7 +238,10 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
             user_agent="pytest",
         )
 
-    assert brute_force_service.failures == [("password_reset", "user@example.com:127.0.0.1")]
+    assert brute_force_service.failures == [
+        ("password_reset", "user@example.com:127.0.0.1"),
+        ("password_reset_account", "user@example.com"),
+    ]
 
     raw_code = service._generate_code()
     reset_repository.records.clear()
@@ -247,4 +267,9 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
     assert user.password_hash == "hashed:NewPassw0rd!"
     assert refresh_repository.revoked_for_user == user.id
     assert session_service.revoked_for_user == user.id
-    assert brute_force_service.cleared == [("password_reset", "user@example.com:127.0.0.1")]
+    assert len(redis.values) == len(session_service.active_session_ids)
+    assert all(key.startswith("access_session_revoked:") for key in redis.values)
+    assert brute_force_service.cleared == [
+        ("password_reset", "user@example.com:127.0.0.1"),
+        ("password_reset_account", "user@example.com"),
+    ]

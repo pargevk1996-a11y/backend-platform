@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from typing import cast
-
 from fastapi import APIRouter, Depends, Request, Response
-from httpx._types import QueryParamTypes
 
 from app.api.deps import (
     get_access_token_service,
@@ -15,6 +12,7 @@ from app.core.config import Settings
 from app.core.rate_limit import RateLimiter
 from app.core.security import (
     AccessTokenService,
+    ensure_access_session_active,
     extract_bearer_token,
     get_client_ip,
     is_public_endpoint,
@@ -58,10 +56,11 @@ async def proxy_request(
             limit_per_minute=settings.rate_limit_protected_per_minute,
         )
         token = extract_bearer_token(request, settings=settings)
-        access_token_service.decode_access_token(token)
+        claims = access_token_service.decode_access_token(token)
+        await ensure_access_session_active(rate_limiter.redis, claims.sid)
 
     body = await request.body()
-    query_params = cast(QueryParamTypes, list(request.query_params.multi_items()))
+    query_params = list(request.query_params.multi_items())
     proxied = await routing_service.forward(
         method=method,
         path=path,

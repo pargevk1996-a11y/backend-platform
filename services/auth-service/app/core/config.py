@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     rate_limit_2fa_per_minute: int = 10
     rate_limit_2fa_setup_per_minute: int = 5
     rate_limit_refresh_per_minute: int = 30
+    rate_limit_revoke_per_minute: int = 30
     rate_limit_register_per_minute: int = 5
     rate_limit_password_reset_per_minute: int = 5
 

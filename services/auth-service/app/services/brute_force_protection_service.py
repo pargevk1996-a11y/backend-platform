@@ -43,7 +43,7 @@ class BruteForceProtectionService:
                 window_seconds=self.settings.brute_force_2fa_window_seconds,
                 lock_seconds=self.settings.brute_force_2fa_lock_seconds,
             )
-        if scope == "password_reset":
+        if scope in {"password_reset", "password_reset_account"}:
             return BruteForcePolicy(
                 max_attempts=self.settings.brute_force_password_reset_max_attempts,
                 window_seconds=self.settings.brute_force_password_reset_window_seconds,

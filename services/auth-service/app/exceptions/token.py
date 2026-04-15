@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from app.exceptions.base import AppException
 
 
@@ -18,7 +20,14 @@ class RevokedTokenException(AppException):
 
 
 class TokenReuseDetectedException(AppException):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        session_id: UUID | None = None,
+        family_id: UUID | None = None,
+    ) -> None:
+        self.session_id = session_id
+        self.family_id = family_id
         super().__init__(
             message="Refresh token reuse detected",
             error_code="TOKEN_REUSE_DETECTED",

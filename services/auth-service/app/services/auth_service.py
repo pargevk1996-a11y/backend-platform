@@ -21,7 +21,7 @@ from app.core.privacy import normalize_optional, stable_hmac_digest
 from app.exceptions.auth import InvalidCredentialsException, UserAlreadyExistsException
 from app.exceptions.token import InvalidTokenException, TokenReuseDetectedException
 from app.exceptions.two_factor import InvalidChallengeException, InvalidTwoFactorCodeException
-from app.integrations.redis.keys import login_challenge_key
+from app.integrations.redis.keys import access_session_revoked_key, login_challenge_key
 from app.repositories.user_repository import UserRepository
 from app.services.audit_service import AuditService
 from app.services.brute_force_protection_service import BruteForceProtectionService
@@ -268,7 +268,22 @@ class AuthService:
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
-        except (InvalidTokenException, TokenReuseDetectedException):
+        except TokenReuseDetectedException as exc:
+            if exc.session_id is not None:
+                await self._mark_access_session_revoked(exc.session_id)
+            await self.audit_service.log_event(
+                session,
+                event_type=AUDIT_REFRESH_REUSE_DETECTED,
+                outcome="failure",
+                actor_user_id=None,
+                target_user_id=None,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                payload={"reason": "reused_refresh"},
+            )
+            await session.commit()
+            raise
+        except InvalidTokenException:
             await self.audit_service.log_event(
                 session,
                 event_type=AUDIT_REFRESH_REUSE_DETECTED,
@@ -303,12 +318,14 @@ class AuthService:
         ip_address: str | None,
         user_agent: str | None,
     ) -> None:
-        family_id = await self.refresh_token_service.revoke(
+        revocation = await self.refresh_token_service.revoke(
             session,
             raw_refresh_token=refresh_token,
             revoke_family=revoke_family,
             reason="logout",
         )
+        if revocation is not None:
+            await self._mark_access_session_revoked(revocation.session_id)
         await self.audit_service.log_event(
             session,
             event_type=AUDIT_REFRESH_REVOKED,
@@ -317,9 +334,16 @@ class AuthService:
             target_user_id=None,
             ip_address=ip_address,
             user_agent=user_agent,
-            payload={"family_id": str(family_id) if family_id else None},
+            payload={"family_id": str(revocation.family_id) if revocation else None},
         )
         await session.commit()
+
+    async def _mark_access_session_revoked(self, session_id: UUID) -> None:
+        await self.redis.set(
+            access_session_revoked_key(str(session_id)),
+            "1",
+            ex=max(self.settings.jwt_access_ttl_seconds, 60),
+        )
 
     async def _create_login_challenge(
         self,

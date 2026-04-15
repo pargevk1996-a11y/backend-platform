@@ -98,6 +98,10 @@ class JWTService:
 
         session_id = payload.get("sid")
         family_id = payload.get("family_id")
+        if expected_type == TOKEN_TYPE_ACCESS and session_id is None:
+            raise InvalidTokenException("Missing access token sid claim")
+        if expected_type == TOKEN_TYPE_REFRESH and (session_id is None or family_id is None):
+            raise InvalidTokenException("Missing required refresh token claims")
         if session_id is not None and not isinstance(session_id, str):
             raise InvalidTokenException("Malformed sid claim")
         if family_id is not None and not isinstance(family_id, str):

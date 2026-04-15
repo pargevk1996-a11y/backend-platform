@@ -61,6 +61,16 @@ class SessionRepository:
         result = await session.execute(stmt)
         return int(result.scalar_one()) > 0
 
+    async def list_active_session_ids_for_user(
+        self, session: AsyncSession, user_id: UUID
+    ) -> list[UUID]:
+        stmt = select(UserSession.id).where(
+            UserSession.user_id == user_id,
+            UserSession.revoked_at.is_(None),
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     async def revoke_user_sessions(self, session: AsyncSession, user_id: UUID) -> None:
         stmt = (
             update(UserSession)

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
-from httpx._types import QueryParamTypes
 
 from app.clients.auth_client import AuthClient
 from app.clients.notification_client import NotificationClient
@@ -25,6 +24,12 @@ FORWARDED_HEADERS = {
     "forwarded",
     "x-forwarded-for",
     "x-real-ip",
+}
+
+BLOCKED_RESPONSE_HEADERS = {
+    "server",
+    "set-cookie",
+    "x-powered-by",
 }
 
 
@@ -67,7 +72,7 @@ class RoutingService:
         *,
         method: str,
         path: str,
-        params: QueryParamTypes,
+        params: list[tuple[str, str]],
         headers: dict[str, str],
         body: bytes,
         client_ip: str | None = None,
@@ -114,7 +119,11 @@ class RoutingService:
         safe: dict[str, str] = {}
         for key, value in headers.items():
             lower = key.lower()
-            if lower in HOP_BY_HOP_HEADERS or lower == "content-length":
+            if (
+                lower in HOP_BY_HOP_HEADERS
+                or lower in BLOCKED_RESPONSE_HEADERS
+                or lower == "content-length"
+            ):
                 continue
             safe[key] = value
         return safe

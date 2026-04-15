@@ -8,6 +8,17 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+MAX_REQUEST_ID_LENGTH = 128
+
+
+def _request_id_from_header(value: str | None) -> str:
+    if value is None:
+        return str(uuid4())
+    normalized = value.strip()
+    if not normalized or len(normalized) > MAX_REQUEST_ID_LENGTH:
+        return str(uuid4())
+    return normalized
+
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(
@@ -15,7 +26,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        request_id = request.headers.get("x-request-id") or str(uuid4())
+        request_id = _request_id_from_header(request.headers.get("x-request-id"))
         request.state.request_id = request_id
         started_at = time.perf_counter()
 

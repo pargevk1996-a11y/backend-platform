@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.constants import TOKEN_TYPE_ACCESS
-from app.core.security import extract_bearer_token
+from app.core.security import ensure_access_session_active, extract_bearer_token
 from app.db.session import get_session
 from app.exceptions.auth import UnauthorizedException
 from app.integrations.email.provider import EmailProvider
@@ -151,6 +151,7 @@ async def get_password_reset_service(
         password_reset_repository=reset_repository,
         refresh_token_repository=refresh_token_repository,
         session_service=session_service,
+        redis=redis,
         email_provider=email_provider,
         audit_service=audit_service,
         brute_force_service=brute_force_service,
@@ -167,8 +168,13 @@ async def get_current_user(
     claims = jwt_service.decode_and_validate(token, expected_type=TOKEN_TYPE_ACCESS)
     try:
         user_id = UUID(claims.sub)
+        if claims.session_id is None:
+            raise ValueError
+        session_id = UUID(claims.session_id)
     except ValueError as exc:
-        raise UnauthorizedException("Invalid subject claim") from exc
+        raise UnauthorizedException("Invalid access token claims") from exc
+    redis = await get_redis(request)
+    await ensure_access_session_active(redis, session_id)
     user = await user_repository.get_by_id(session, user_id)
     if user is None:
         raise UnauthorizedException("User not found")

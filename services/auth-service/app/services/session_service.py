@@ -38,5 +38,10 @@ class SessionService:
     async def is_family_active(self, session: AsyncSession, refresh_family_id: UUID) -> bool:
         return await self.repository.is_family_active(session, refresh_family_id)
 
+    async def list_active_session_ids_for_user(
+        self, session: AsyncSession, user_id: UUID
+    ) -> list[UUID]:
+        return await self.repository.list_active_session_ids_for_user(session, user_id)
+
     async def revoke_user_sessions(self, session: AsyncSession, user_id: UUID) -> None:
         await self.repository.revoke_user_sessions(session, user_id)

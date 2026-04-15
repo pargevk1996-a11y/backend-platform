@@ -7,7 +7,7 @@ from uuid import uuid4
 import jwt
 import pytest
 from app.core.config import get_settings
-from app.core.security import AccessTokenService
+from app.core.security import AccessTokenService, ensure_access_session_active
 from app.exceptions.auth import UnauthorizedException
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -75,6 +75,37 @@ async def test_decode_access_token_rejects_wrong_type() -> None:
 
     with pytest.raises(UnauthorizedException):
         service.decode_access_token(token)
+
+
+@pytest.mark.asyncio
+async def test_decode_access_token_requires_temporal_claims() -> None:
+    settings = get_settings()
+    service = AccessTokenService(settings)
+
+    payload = {
+        "sub": str(uuid4()),
+        "jti": str(uuid4()),
+        "sid": str(uuid4()),
+        "type": "access",
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=10),
+    }
+    token = jwt.encode(payload, settings.jwt_public_key_value, algorithm=settings.jwt_algorithm)
+
+    with pytest.raises(UnauthorizedException):
+        service.decode_access_token(token)
+
+
+@pytest.mark.asyncio
+async def test_access_session_revocation_marker_rejects_token() -> None:
+    class FakeRedis:
+        async def exists(self, key: str) -> int:
+            assert key.startswith("access_session_revoked:")
+            return 1
+
+    with pytest.raises(UnauthorizedException):
+        await ensure_access_session_active(FakeRedis(), uuid4())  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

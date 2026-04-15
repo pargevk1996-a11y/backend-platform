@@ -25,6 +25,12 @@ class TokenPair:
     session_id: UUID
 
 
+@dataclass(slots=True)
+class RefreshRevocationResult:
+    family_id: UUID
+    session_id: UUID
+
+
 class RefreshTokenService:
     """Refresh-token rotation and revocation with reuse detection."""
 
@@ -140,7 +146,7 @@ class RefreshTokenService:
         if token_record.revoked_at is not None or token_record.rotated_at is not None:
             await self.repository.revoke_family(session, family_id, "reuse_detected")
             await self.session_service.revoke_family(session, family_id)
-            raise TokenReuseDetectedException()
+            raise TokenReuseDetectedException(session_id=session_id, family_id=family_id)
 
         new_jti = uuid4()
         new_refresh_token, new_refresh_exp = self.jwt_service.issue_refresh_token(
@@ -184,17 +190,18 @@ class RefreshTokenService:
         raw_refresh_token: str,
         revoke_family: bool,
         reason: str,
-    ) -> UUID | None:
+    ) -> RefreshRevocationResult | None:
         claims = self.jwt_service.decode_and_validate(
             raw_refresh_token,
             expected_type=TOKEN_TYPE_REFRESH,
         )
-        if claims.family_id is None:
-            raise InvalidTokenException("Missing refresh family id")
+        if claims.family_id is None or claims.session_id is None:
+            raise InvalidTokenException("Missing required refresh token claims")
 
         try:
             token_jti = UUID(claims.jti)
             family_id = UUID(claims.family_id)
+            session_id = UUID(claims.session_id)
             user_id = UUID(claims.sub)
         except ValueError as exc:
             raise InvalidTokenException("Malformed UUID claim in token") from exc
@@ -215,7 +222,7 @@ class RefreshTokenService:
         if revoke_family:
             await self.repository.revoke_family(session, family_id, reason)
             await self.session_service.revoke_family(session, family_id)
-            return family_id
+            return RefreshRevocationResult(family_id=family_id, session_id=session_id)
 
         await self.repository.revoke_token(session, token=token_record, reason=reason)
-        return family_id
+        return RefreshRevocationResult(family_id=family_id, session_id=session_id)

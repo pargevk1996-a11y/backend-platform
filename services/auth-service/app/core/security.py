@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from ipaddress import ip_address, ip_network
+from uuid import UUID
 
 from fastapi import Request
+from redis.asyncio import Redis
 
 from app.exceptions.auth import UnauthorizedException
+from app.integrations.redis.keys import access_session_revoked_key
 
 
 def _is_trusted_proxy(client_host: str | None, trusted_proxy_ips: list[str] | None) -> bool:
@@ -38,6 +41,11 @@ def get_client_ip(request: Request, trusted_proxy_ips: list[str] | None = None) 
     if client_host:
         return client_host
     return "unknown"
+
+
+async def ensure_access_session_active(redis: Redis, session_id: UUID) -> None:
+    if await redis.exists(access_session_revoked_key(str(session_id))):
+        raise UnauthorizedException("Access session revoked")
 
 
 def extract_bearer_token(request: Request) -> str:

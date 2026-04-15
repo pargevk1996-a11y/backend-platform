@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AuditEventContract(BaseModel):
@@ -12,4 +12,4 @@ class AuditEventContract(BaseModel):
     target_user_id: str | None = None
     ip_address: str | None = None
     user_agent: str | None = None
-    payload: dict[str, str | int | bool | None] = {}
+    payload: dict[str, str | int | bool | None] = Field(default_factory=dict)

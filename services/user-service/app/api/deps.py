@@ -7,7 +7,12 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.security import AccessTokenService, extract_bearer_token, get_client_ip
+from app.core.security import (
+    AccessTokenService,
+    ensure_access_session_active,
+    extract_bearer_token,
+    get_client_ip,
+)
 from app.db.session import get_session
 from app.exceptions.auth import UnauthorizedException
 from app.integrations.redis.client import get_redis
@@ -68,9 +73,11 @@ async def get_current_context(
     token_service: AccessTokenService = Depends(get_access_token_service),
     user_service: UserService = Depends(get_user_service),
     settings: Settings = Depends(get_settings_dep),
+    redis: Redis = Depends(get_redis),
 ) -> UserContext:
     token = extract_bearer_token(request)
     claims = token_service.decode_access_token(token)
+    await ensure_access_session_active(redis, claims.sid)
 
     context = await user_service.context_for_subject(
         session,

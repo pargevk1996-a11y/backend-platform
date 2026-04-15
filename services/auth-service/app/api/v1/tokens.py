@@ -42,7 +42,13 @@ async def refresh_tokens(
     )
 
 
-@router.post("/revoke", response_model=MessageResponse)
+@router.post(
+    "/revoke",
+    response_model=MessageResponse,
+    dependencies=[
+        Depends(rate_limit_dependency("revoke", settings.rate_limit_revoke_per_minute))
+    ],
+)
 async def revoke_token(
     payload: RevokeTokenRequest,
     request: Request,

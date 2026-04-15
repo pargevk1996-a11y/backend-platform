@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from secrets import randbelow
+from uuid import UUID
 
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -13,6 +15,7 @@ from app.core.constants import AUDIT_PASSWORD_RESET_COMPLETED, AUDIT_PASSWORD_RE
 from app.core.privacy import normalize_optional
 from app.exceptions.auth import BadRequestException
 from app.integrations.email.provider import EmailProvider
+from app.integrations.redis.keys import access_session_revoked_key
 from app.repositories.password_reset_repository import PasswordResetRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
@@ -37,6 +40,7 @@ class PasswordResetService:
         password_reset_repository: PasswordResetRepository,
         refresh_token_repository: RefreshTokenRepository,
         session_service: SessionService,
+        redis: Redis,
         email_provider: EmailProvider,
         audit_service: AuditService,
         brute_force_service: BruteForceProtectionService,
@@ -47,6 +51,7 @@ class PasswordResetService:
         self.password_reset_repository = password_reset_repository
         self.refresh_token_repository = refresh_token_repository
         self.session_service = session_service
+        self.redis = redis
         self.email_provider = email_provider
         self.audit_service = audit_service
         self.brute_force_service = brute_force_service
@@ -57,6 +62,14 @@ class PasswordResetService:
 
     def _generate_code(self) -> str:
         return f"{randbelow(1_000_000):06d}"
+
+    async def _mark_access_sessions_revoked(self, session_ids: list[UUID]) -> None:
+        for session_id in session_ids:
+            await self.redis.set(
+                access_session_revoked_key(str(session_id)),
+                "1",
+                ex=max(self.settings.jwt_access_ttl_seconds, 60),
+            )
 
     async def request_reset(
         self,
@@ -125,17 +138,19 @@ class PasswordResetService:
     ) -> None:
         normalized_email = email.lower()
         identifier = f"{normalized_email}:{ip_address or 'unknown'}"
+        account_identifier = normalized_email
         await self.brute_force_service.assert_not_locked(
             scope="password_reset",
             identifier=identifier,
         )
+        await self.brute_force_service.assert_not_locked(
+            scope="password_reset_account",
+            identifier=account_identifier,
+        )
 
         user = await self.user_repository.get_by_email(session, normalized_email)
         if user is None:
-            await self.brute_force_service.record_failure(
-                scope="password_reset",
-                identifier=identifier,
-            )
+            await self._record_reset_failure(identifier, account_identifier)
             raise BadRequestException("Invalid or expired reset code")
 
         token_hash = self._hash_token(code)
@@ -145,36 +160,35 @@ class PasswordResetService:
             token_hash=token_hash,
         )
         if record is None:
-            await self.brute_force_service.record_failure(
-                scope="password_reset",
-                identifier=identifier,
-            )
+            await self._record_reset_failure(identifier, account_identifier)
             raise BadRequestException("Invalid or expired reset code")
         if record.used_at is not None:
-            await self.brute_force_service.record_failure(
-                scope="password_reset",
-                identifier=identifier,
-            )
+            await self._record_reset_failure(identifier, account_identifier)
             raise BadRequestException("Invalid or expired reset code")
         now = datetime.now(tz=UTC)
         if record.expires_at < now:
-            await self.brute_force_service.record_failure(
-                scope="password_reset",
-                identifier=identifier,
-            )
+            await self._record_reset_failure(identifier, account_identifier)
             raise BadRequestException("Invalid or expired reset code")
 
         password_hash = self.password_service.hash_password(new_password)
         await self.user_repository.update_password(user, password_hash)
         await self.password_reset_repository.mark_used(record, now)
 
+        active_session_ids = await self.session_service.list_active_session_ids_for_user(
+            session, user.id
+        )
         await self.refresh_token_repository.revoke_all_for_user(
             session, user.id, reason="password_reset"
         )
         await self.session_service.revoke_user_sessions(session, user.id)
+        await self._mark_access_sessions_revoked(active_session_ids)
         await self.brute_force_service.clear_failures(
             scope="password_reset",
             identifier=identifier,
+        )
+        await self.brute_force_service.clear_failures(
+            scope="password_reset_account",
+            identifier=account_identifier,
         )
 
         await self.audit_service.log_event(
@@ -187,3 +201,13 @@ class PasswordResetService:
             user_agent=user_agent,
         )
         await session.commit()
+
+    async def _record_reset_failure(self, identifier: str, account_identifier: str) -> None:
+        await self.brute_force_service.record_failure(
+            scope="password_reset",
+            identifier=identifier,
+        )
+        await self.brute_force_service.record_failure(
+            scope="password_reset_account",
+            identifier=account_identifier,
+        )

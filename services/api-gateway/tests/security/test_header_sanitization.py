@@ -34,3 +34,29 @@ async def test_hop_by_hop_headers_are_removed() -> None:
         assert "Connection" not in sanitized
         assert "X-Forwarded-For" not in sanitized
         assert "X-Real-IP" not in sanitized
+
+
+@pytest.mark.asyncio
+async def test_sensitive_response_headers_are_removed() -> None:
+    async with httpx.AsyncClient() as client:
+        service = RoutingService(
+            auth_client=AuthClient(base_url="http://auth", http_client=client),
+            user_client=UserClient(base_url="http://user", http_client=client),
+            notification_client=NotificationClient(base_url=None, http_client=client),
+        )
+
+        sanitized = service._sanitize_response_headers(
+            httpx.Headers(
+                {
+                    "Set-Cookie": "session=attacker",
+                    "Server": "upstream",
+                    "X-Powered-By": "framework",
+                    "Content-Type": "application/json",
+                }
+            )
+        )
+
+        assert "content-type" in sanitized
+        assert "set-cookie" not in sanitized
+        assert "server" not in sanitized
+        assert "x-powered-by" not in sanitized
