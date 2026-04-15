@@ -1,0 +1,15 @@
+.codex
+.git
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.py[cod]
+
+**/.env
+**/.env.*
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache

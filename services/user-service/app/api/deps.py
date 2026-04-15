@@ -20,37 +20,30 @@ from app.services.rbac_service import RBACService
 from app.services.user_service import UserContext, UserService
 
 
-@lru_cache(maxsize=1)
 def get_user_repository() -> UserRepository:
     return UserRepository()
 
 
-@lru_cache(maxsize=1)
 def get_profile_repository() -> ProfileRepository:
     return ProfileRepository()
 
 
-@lru_cache(maxsize=1)
 def get_rbac_repository() -> RBACRepository:
     return RBACRepository()
 
 
-@lru_cache(maxsize=1)
 def get_audit_repository() -> AuditRepository:
     return AuditRepository()
 
 
-@lru_cache(maxsize=1)
 def get_rbac_service() -> RBACService:
     return RBACService(get_rbac_repository())
 
 
-@lru_cache(maxsize=1)
 def get_audit_service() -> AuditService:
     return AuditService(get_audit_repository())
 
 
-@lru_cache(maxsize=1)
 def get_user_service() -> UserService:
     return UserService(
         user_repository=get_user_repository(),

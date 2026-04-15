@@ -76,7 +76,8 @@ async def login(
         return LoginResponse(requires_2fa=True, challenge_id=result.challenge_id)
 
     tokens = result.tokens
-    assert tokens is not None
+    if tokens is None:
+        raise RuntimeError("Unexpected login state: token pair is missing without 2FA")
     return LoginResponse(
         requires_2fa=False,
         tokens=TokenPairResponse(

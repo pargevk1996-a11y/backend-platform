@@ -31,32 +31,26 @@ from app.services.session_service import SessionService
 from app.services.two_factor_service import TwoFactorService
 
 
-@lru_cache(maxsize=1)
 def get_user_repository() -> UserRepository:
     return UserRepository()
 
 
-@lru_cache(maxsize=1)
 def get_refresh_token_repository() -> RefreshTokenRepository:
     return RefreshTokenRepository()
 
 
-@lru_cache(maxsize=1)
 def get_password_reset_repository() -> PasswordResetRepository:
     return PasswordResetRepository()
 
 
-@lru_cache(maxsize=1)
 def get_two_factor_repository() -> TwoFactorRepository:
     return TwoFactorRepository()
 
 
-@lru_cache(maxsize=1)
 def get_session_repository() -> SessionRepository:
     return SessionRepository()
 
 
-@lru_cache(maxsize=1)
 def get_audit_repository() -> AuditRepository:
     return AuditRepository()
 
@@ -71,12 +65,10 @@ def get_jwt_service() -> JWTService:
     return JWTService(get_settings())
 
 
-@lru_cache(maxsize=1)
 def get_session_service() -> SessionService:
     return SessionService(get_session_repository())
 
 
-@lru_cache(maxsize=1)
 def get_refresh_token_service() -> RefreshTokenService:
     return RefreshTokenService(
         settings=get_settings(),
@@ -86,7 +78,6 @@ def get_refresh_token_service() -> RefreshTokenService:
     )
 
 
-@lru_cache(maxsize=1)
 def get_two_factor_service() -> TwoFactorService:
     return TwoFactorService(
         settings=get_settings(),
@@ -95,7 +86,6 @@ def get_two_factor_service() -> TwoFactorService:
     )
 
 
-@lru_cache(maxsize=1)
 def get_audit_service() -> AuditService:
     return AuditService(get_audit_repository())
 

@@ -131,7 +131,8 @@ class AuthService:
             await session.commit()
             raise InvalidCredentialsException()
 
-        assert user is not None
+        if user is None:
+            raise RuntimeError("Unexpected login state: password verified without a user")
         await self.brute_force_service.clear_failures(scope="login", identifier=identifier)
 
         if user.two_factor_enabled:

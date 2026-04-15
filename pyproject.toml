@@ -10,6 +10,7 @@ members = [
   "services/auth-service",
   "services/user-service",
   "services/api-gateway",
+  "services/notification-service",
   "shared/python",
 ]
 
@@ -19,6 +20,7 @@ testpaths = [
   "services/auth-service/tests",
   "services/user-service/tests",
   "services/api-gateway/tests",
+  "services/notification-service/tests",
   "tests",
 ]
 asyncio_mode = "auto"

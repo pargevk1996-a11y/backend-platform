@@ -6,7 +6,8 @@ Security-first backend platform in microservices style.
 - `services/auth-service` - authentication, JWT, TOTP 2FA, refresh rotation/revoke
 - `services/user-service` - user profiles, RBAC (roles/permissions), audit events
 - `services/api-gateway` - edge gateway with JWT verification and rate limiting
-- `shared/python` - shared contracts and utilities
+- `services/notification-service` - WIP notification service scaffold with health probes
+- `shared/python` - versioned shared contracts and utilities
 
 ## Tech stack
 - FastAPI
@@ -39,6 +40,7 @@ Security-first backend platform in microservices style.
 - Gateway: `GET /v1/health/live`, `GET /v1/health/ready`
 - Auth: `GET /v1/health/live`, `GET /v1/health/ready`
 - User: `GET /v1/health/live`, `GET /v1/health/ready`
+- Notification WIP: `GET /v1/health/live`, `GET /v1/health/ready`
 
 ## Tests
 - `make test`

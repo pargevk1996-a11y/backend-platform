@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     access_cookie_name: str = "access_token"
     refresh_cookie_name: str = "refresh_token"
     csrf_cookie_name: str = "csrf_token"
-    cookie_secure: bool = False
+    cookie_secure: bool = True
     cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     cookie_domain: str | None = None
 
@@ -147,27 +147,27 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _validate_production_security(self) -> Settings:
-        if self.service_env != "production":
+    def _validate_deployed_security(self) -> Settings:
+        if self.service_env not in {"staging", "production"}:
             return self
 
         if self.jwt_algorithm.startswith("HS"):
-            raise ValueError("Production environment requires asymmetric JWT algorithm (RS*/ES*)")
+            raise ValueError("Staging and production require asymmetric JWT algorithm (RS*/ES*)")
 
         if not self.cors_allowed_origins:
-            raise ValueError("Production environment requires explicit CORS_ALLOWED_ORIGINS")
+            raise ValueError("Staging and production require explicit CORS_ALLOWED_ORIGINS")
         if any(origin == "*" for origin in self.cors_allowed_origins):
-            raise ValueError("Wildcard CORS origin is not allowed in production")
+            raise ValueError("Wildcard CORS origin is not allowed in staging or production")
 
         private_key = self.jwt_private_key_value
         public_key = self.jwt_public_key_value
         if "BEGIN" not in private_key or "BEGIN" not in public_key:
-            raise ValueError("Production asymmetric JWT keys must be PEM-formatted")
+            raise ValueError("Deployed asymmetric JWT keys must be PEM-formatted")
 
         if not self.cookie_secure:
-            raise ValueError("Production environment requires COOKIE_SECURE=true")
+            raise ValueError("Staging and production require COOKIE_SECURE=true")
         if self.cookie_samesite == "none":
-            raise ValueError("Production environment forbids SameSite=None for auth cookies")
+            raise ValueError("Staging and production forbid SameSite=None for auth cookies")
         return self
 
     @property

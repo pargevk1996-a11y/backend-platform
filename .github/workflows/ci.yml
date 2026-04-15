@@ -29,10 +29,11 @@ jobs:
           pip install -r services/auth-service/requirements.lock
           pip install -r services/user-service/requirements.lock
           pip install -r services/api-gateway/requirements.lock
+          pip install -r services/notification-service/requirements.lock
 
       - name: Compile Check
         run: |
-          python -m compileall -q services/auth-service services/user-service services/api-gateway shared/python/src
+          python -m compileall -q services/auth-service services/user-service services/api-gateway services/notification-service shared/python/src
 
       - name: Test Auth Service
         run: |
@@ -45,6 +46,10 @@ jobs:
       - name: Test API Gateway
         run: |
           PYTHONPATH=services/api-gateway python -m pytest -q services/api-gateway/tests
+
+      - name: Test Notification Service
+        run: |
+          PYTHONPATH=services/notification-service python -m pytest -q services/notification-service/tests
 
   e2e-auth-flow:
     name: E2E Auth Security Flow
@@ -67,6 +72,7 @@ jobs:
           pip install -r services/auth-service/requirements.lock
           pip install -r services/user-service/requirements.lock
           pip install -r services/api-gateway/requirements.lock
+          pip install -r services/notification-service/requirements.lock
 
       - name: Run E2E Stack Test
         run: |

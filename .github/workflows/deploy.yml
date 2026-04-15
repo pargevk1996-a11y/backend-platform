@@ -24,3 +24,6 @@ jobs:
 
       - name: Build api-gateway image
         run: docker build -f infra/docker/gateway.Dockerfile -t backend-platform/api-gateway:${{ github.sha }} .
+
+      - name: Build notification-service image
+        run: docker build -f infra/docker/notification-service.Dockerfile -t backend-platform/notification-service:${{ github.sha }} .
