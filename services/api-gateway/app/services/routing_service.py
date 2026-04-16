@@ -72,7 +72,7 @@ class RoutingService:
         *,
         method: str,
         path: str,
-        params: list[tuple[str, str]],
+        params: httpx.QueryParams,
         headers: dict[str, str],
         body: bytes,
         client_ip: str | None = None,

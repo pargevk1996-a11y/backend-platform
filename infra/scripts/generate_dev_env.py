@@ -50,6 +50,38 @@ def _write_if_allowed(path: Path, content: str, *, force: bool) -> None:
     print(f"write  {path}")
 
 
+def _smtp_key_values_from_env_text(raw: str) -> dict[str, str]:
+    """When regenerating auth .env, keep non-empty SMTP_* lines (Gmail etc.)."""
+    preserved: dict[str, str] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not line.startswith("SMTP_") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if val:
+            preserved[key] = val
+    return preserved
+
+
+def _merge_smtp_into_auth_env(content: str, smtp: dict[str, str]) -> str:
+    if not smtp:
+        return content
+    lines = content.splitlines()
+    out: list[str] = []
+    for line in lines:
+        if "=" in line:
+            key = line.split("=", 1)[0].strip()
+            if key in smtp:
+                out.append(f"{key}={smtp[key]}")
+                continue
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate secure local development env files for backend-platform.",
@@ -106,9 +138,6 @@ def main() -> None:
             "SMTP_PASSWORD=",
             "SMTP_USE_TLS=true",
             "SMTP_FROM_EMAIL=",
-            "",
-            "COOKIE_SECURE=false",
-            "COOKIE_SAMESITE=lax",
             "",
             "RATE_LIMIT_LOGIN_PER_MINUTE=10",
             "RATE_LIMIT_2FA_PER_MINUTE=10",
@@ -195,7 +224,14 @@ def main() -> None:
         ]
     )
 
-    _write_if_allowed(ROOT / "services" / "auth-service" / ".env", auth_env, force=args.force)
+    auth_env_path = ROOT / "services" / "auth-service" / ".env"
+    if args.force and auth_env_path.exists():
+        preserved_smtp = _smtp_key_values_from_env_text(auth_env_path.read_text(encoding="utf-8"))
+        if preserved_smtp:
+            auth_env = _merge_smtp_into_auth_env(auth_env, preserved_smtp)
+            print(f"note   preserved {len(preserved_smtp)} SMTP_* keys from existing {auth_env_path.name}")
+
+    _write_if_allowed(auth_env_path, auth_env, force=args.force)
     _write_if_allowed(ROOT / "services" / "user-service" / ".env", user_env, force=args.force)
     _write_if_allowed(ROOT / "services" / "api-gateway" / ".env", gateway_env, force=args.force)
     _write_if_allowed(ROOT / "infra" / "compose" / ".env.compose", compose_env, force=args.force)

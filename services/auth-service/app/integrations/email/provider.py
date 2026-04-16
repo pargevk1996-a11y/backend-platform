@@ -4,8 +4,11 @@ import asyncio
 import logging
 import smtplib
 from email.message import EmailMessage
+from smtplib import SMTPException
 
 LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_SMTP_TIMEOUT_SEC = 30
 
 
 class EmailProvider:
@@ -32,7 +35,10 @@ class EmailProvider:
         if not self.host or not self.from_email:
             if self.require_delivery:
                 raise RuntimeError("Email delivery is not configured")
-            LOGGER.info("email.send", extra={"to": to_email, "subject": subject, "body": body})
+            LOGGER.warning(
+                "email.delivery_skipped",
+                extra={"to": to_email, "subject": subject, "reason": "not_configured"},
+            )
             return None
 
         host = self.host
@@ -44,19 +50,35 @@ class EmailProvider:
         message.set_content(body)
 
         def _send() -> None:
-            if self.use_tls and self.port == 465:
-                with smtplib.SMTP_SSL(host, self.port) as smtp:
-                    if self.username and self.password:
-                        smtp.login(self.username, self.password)
-                    smtp.send_message(message)
-            else:
-                with smtplib.SMTP(host, self.port) as smtp:
-                    smtp.ehlo()
-                    if self.use_tls:
-                        smtp.starttls()
+            try:
+                if self.use_tls and self.port == 465:
+                    with smtplib.SMTP_SSL(
+                        host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC
+                    ) as smtp:
+                        if self.username and self.password:
+                            smtp.login(self.username, self.password)
+                        smtp.send_message(message)
+                else:
+                    with smtplib.SMTP(host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC) as smtp:
                         smtp.ehlo()
-                    if self.username and self.password:
-                        smtp.login(self.username, self.password)
-                    smtp.send_message(message)
+                        if self.use_tls:
+                            smtp.starttls()
+                            smtp.ehlo()
+                        if self.username and self.password:
+                            smtp.login(self.username, self.password)
+                        smtp.send_message(message)
+            except SMTPException as exc:
+                LOGGER.exception(
+                    "email.smtp_failed",
+                    extra={"to": to_email, "host": host, "port": self.port, "error": str(exc)},
+                )
+                raise
+            except OSError as exc:
+                LOGGER.exception(
+                    "email.smtp_network_failed",
+                    extra={"to": to_email, "host": host, "port": self.port, "error": str(exc)},
+                )
+                raise
 
         await asyncio.to_thread(_send)
+        LOGGER.info("email.sent", extra={"to": to_email, "subject": subject})

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.deps import (
@@ -60,7 +61,7 @@ async def proxy_request(
         await ensure_access_session_active(rate_limiter.redis, claims.sid)
 
     body = await request.body()
-    query_params = list(request.query_params.multi_items())
+    query_params = httpx.QueryParams(tuple(request.query_params.multi_items()))
     proxied = await routing_service.forward(
         method=method,
         path=path,

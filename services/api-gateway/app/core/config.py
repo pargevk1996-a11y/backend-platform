@@ -51,11 +51,6 @@ class Settings(BaseSettings):
     rate_limit_public_auth_per_minute: int = 30
     rate_limit_protected_per_minute: int = 120
 
-    access_cookie_name: str = "access_token"
-    refresh_cookie_name: str = "refresh_token"
-    csrf_cookie_name: str = "csrf_token"
-    csrf_header_name: str = "x-csrf-token"
-
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def _parse_origins(cls, value: str | list[str] | None) -> list[str]:

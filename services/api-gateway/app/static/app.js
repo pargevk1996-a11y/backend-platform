@@ -254,8 +254,6 @@ function redactTokens(payload) {
   if (clone.tokens?.access_token) clone.tokens.access_token = "[redacted]";
   if (clone.tokens?.refresh_token) clone.tokens.refresh_token = "[redacted]";
   if (clone.backup_codes) clone.backup_codes = "[redacted]";
-  if (clone.secret) clone.secret = "[redacted]";
-  if (clone.provisioning_uri) clone.provisioning_uri = "[redacted]";
   if (clone.qr_png_base64) clone.qr_png_base64 = "[redacted]";
   return clone;
 }

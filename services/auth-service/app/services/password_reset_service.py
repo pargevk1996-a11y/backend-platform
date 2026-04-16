@@ -103,14 +103,22 @@ class PasswordResetService:
             requested_user_agent=normalize_optional(user_agent),
         )
 
+        app_name = self.settings.totp_issuer
+        ttl_minutes = max(1, self.settings.password_reset_token_ttl_value // 60)
+        # ASCII subject only: non-ASCII punctuation can break some SMTP paths without SMTPUTF8.
+        subject = f"{app_name} - password reset"
+        body = (
+            f"Hello,\n\n"
+            f"We received a request to reset your password for {app_name}.\n\n"
+            "To restore your password, enter the following 6-digit code in the form:\n\n"
+            f"{code}\n\n"
+            f"This code expires in {ttl_minutes} minutes.\n\n"
+            "If you did not request a password reset, you can ignore this email.\n"
+        )
         await self.email_provider.send(
             to_email=user.email,
-            subject="Reset your password",
-            body=(
-                "We received a request to reset your password.\n"
-                f"Your reset code is: {code}\n\n"
-                "If you did not request this, you can ignore this email."
-            ),
+            subject=subject,
+            body=body,
         )
 
         await self.audit_service.log_event(

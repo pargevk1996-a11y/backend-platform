@@ -111,6 +111,11 @@ class AuthService:
         await self.brute_force_service.assert_not_locked(scope="login", identifier=identifier)
 
         user = await self.user_repository.get_by_email(session, normalized_email)
+        if user is not None:
+            await self.brute_force_service.assert_not_locked(
+                scope="login_account", identifier=normalized_email
+            )
+
         if user is None:
             self.password_service.verify_against_dummy_hash(password)
             password_ok = False
@@ -118,6 +123,10 @@ class AuthService:
             password_ok = self.password_service.verify_password(password, user.password_hash)
         if not password_ok:
             await self.brute_force_service.record_failure(scope="login", identifier=identifier)
+            if user is not None:
+                await self.brute_force_service.record_failure(
+                    scope="login_account", identifier=normalized_email
+                )
             await self.audit_service.log_event(
                 session,
                 event_type=AUDIT_LOGIN_FAILED,
@@ -133,13 +142,30 @@ class AuthService:
 
         if user is None:
             raise RuntimeError("Unexpected login state: password verified without a user")
+
+        if not user.is_active:
+            await self.audit_service.log_event(
+                session,
+                event_type=AUDIT_LOGIN_FAILED,
+                outcome="failure",
+                actor_user_id=user.id,
+                target_user_id=user.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                payload={"email": normalized_email, "reason": "inactive_account"},
+            )
+            await session.commit()
+            raise InvalidCredentialsException()
+
         await self.brute_force_service.clear_failures(scope="login", identifier=identifier)
+        await self.brute_force_service.clear_failures(
+            scope="login_account", identifier=normalized_email
+        )
 
         if user.two_factor_enabled:
             challenge_id = await self._create_login_challenge(
                 user_id=user.id,
                 ip_address=ip_address,
-                user_agent=user_agent,
             )
             return LoginStepResult(requires_2fa=True, challenge_id=challenge_id, tokens=None)
 
@@ -207,6 +233,21 @@ class AuthService:
         user = await self.user_repository.get_by_id(session, challenge_user_id)
         if user is None:
             raise InvalidChallengeException()
+
+        if not user.is_active:
+            await self._delete_login_challenge(challenge_id)
+            await self.audit_service.log_event(
+                session,
+                event_type=AUDIT_LOGIN_FAILED,
+                outcome="failure",
+                actor_user_id=user.id,
+                target_user_id=user.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                payload={"reason": "inactive_account", "via": "2fa_challenge"},
+            )
+            await session.commit()
+            raise InvalidCredentialsException()
 
         try:
             await self.two_factor_service.verify_for_login(
@@ -350,13 +391,11 @@ class AuthService:
         *,
         user_id: UUID,
         ip_address: str | None,
-        user_agent: str | None,
     ) -> str:
         challenge_id = str(uuid4())
         payload = {
             "user_id": str(user_id),
             "ip_fingerprint": self._context_fingerprint(ip_address),
-            "user_agent_fingerprint": self._context_fingerprint(user_agent),
         }
         key = login_challenge_key(challenge_id)
         await self.redis.set(key, json.dumps(payload), ex=self.settings.login_challenge_ttl_seconds)
@@ -374,7 +413,6 @@ class AuthService:
         return {
             "user_id": decoded.get("user_id"),
             "ip_fingerprint": decoded.get("ip_fingerprint"),
-            "user_agent_fingerprint": decoded.get("user_agent_fingerprint"),
         }
 
     async def _delete_login_challenge(self, challenge_id: str) -> None:
@@ -392,13 +430,10 @@ class AuthService:
         ip_address: str | None,
         user_agent: str | None,
     ) -> bool:
+        """Bind challenge to client IP only; User-Agent is too unstable on mobile networks."""
+        _ = user_agent
         expected_ip = challenge.get("ip_fingerprint")
-        expected_ua = challenge.get("user_agent_fingerprint")
-        if expected_ip is None or expected_ua is None:
+        if expected_ip is None:
             return False
-
         actual_ip = self._context_fingerprint(ip_address)
-        actual_ua = self._context_fingerprint(user_agent)
-        return hmac.compare_digest(expected_ip, actual_ip) and hmac.compare_digest(
-            expected_ua, actual_ua
-        )
+        return hmac.compare_digest(expected_ip, actual_ip)

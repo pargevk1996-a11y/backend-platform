@@ -31,7 +31,7 @@ class BruteForceProtectionService:
         )
 
     def _policy(self, scope: str) -> BruteForcePolicy:
-        if scope == "login":
+        if scope in {"login", "login_account"}:
             return BruteForcePolicy(
                 max_attempts=self.settings.brute_force_login_max_attempts,
                 window_seconds=self.settings.brute_force_login_window_seconds,

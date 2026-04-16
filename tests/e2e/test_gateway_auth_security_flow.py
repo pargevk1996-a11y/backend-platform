@@ -1,13 +1,35 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
+import numpy as np
 import pyotp
 import pytest
+
+try:
+    import cv2
+except ImportError:  # pragma: no cover
+    cv2 = None
+
+
+def _totp_from_setup_qr(qr_png_base64: str) -> pyotp.TOTP:
+    if cv2 is None:
+        raise RuntimeError("e2e requires opencv-python-headless and numpy (see tests/e2e/requirements.txt)")
+    raw = base64.b64decode(qr_png_base64)
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise AssertionError("failed to decode setup QR image")
+    detector = cv2.QRCodeDetector()
+    uri, _, _ = detector.detectAndDecode(img)
+    if not uri:
+        raise AssertionError("no otpauth URI in QR")
+    return pyotp.parse_uri(uri)
 
 pytestmark = pytest.mark.e2e
 
@@ -51,9 +73,9 @@ async def test_gateway_auth_security_flow() -> None:
         )
         assert setup_response.status_code == 200, setup_response.text
         setup_payload = setup_response.json()
-        secret = setup_payload["secret"]
-
-        totp = pyotp.TOTP(secret)
+        assert "secret" not in setup_payload
+        assert "provisioning_uri" not in setup_payload
+        totp = _totp_from_setup_qr(setup_payload["qr_png_base64"])
         current_code = totp.at(for_time=datetime.now(UTC))
         enable_response = await client.post(
             "/v1/two-factor/enable",

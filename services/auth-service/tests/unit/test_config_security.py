@@ -25,33 +25,6 @@ def test_settings_reject_short_pepper(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings()
 
 
-def test_cookie_secure_defaults_to_true(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_required_env(monkeypatch)
-
-    settings = Settings()
-
-    assert settings.cookie_secure is True
-
-
-def test_staging_rejects_insecure_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_required_env(monkeypatch)
-    monkeypatch.setenv("SERVICE_ENV", "staging")
-    monkeypatch.setenv("JWT_ALGORITHM", "RS256")
-    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
-    monkeypatch.setenv(
-        "JWT_PRIVATE_KEY",
-        "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
-    )
-    monkeypatch.setenv(
-        "JWT_PUBLIC_KEY",
-        "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----",
-    )
-    monkeypatch.setenv("COOKIE_SECURE", "false")
-
-    with pytest.raises(ValidationError, match="COOKIE_SECURE"):
-        Settings()
-
-
 def test_production_rejects_hs_algorithm(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_required_env(monkeypatch)
     monkeypatch.setenv("SERVICE_ENV", "production")
@@ -60,3 +33,25 @@ def test_production_rejects_hs_algorithm(monkeypatch: pytest.MonkeyPatch) -> Non
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_smtp_from_email_falls_back_to_username(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "mailer@example.com")
+
+    settings = Settings()
+
+    assert settings.smtp_from_email_value == "mailer@example.com"
+    assert settings.smtp_is_configured
+
+
+def test_development_requires_delivery_when_smtp_is_partially_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+
+    settings = Settings()
+
+    assert settings.smtp_require_delivery_value

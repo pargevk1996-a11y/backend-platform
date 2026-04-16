@@ -97,10 +97,10 @@ def get_email_provider() -> EmailProvider:
         host=getattr(settings, "smtp_host", None),
         port=getattr(settings, "smtp_port", 587),
         username=getattr(settings, "smtp_username", None),
-        password=getattr(settings, "smtp_password", None),
+        password=settings.smtp_password_value,
         use_tls=getattr(settings, "smtp_use_tls", True),
-        from_email=getattr(settings, "smtp_from_email", None),
-        require_delivery=settings.service_env != "development",
+        from_email=settings.smtp_from_email_value,
+        require_delivery=settings.smtp_require_delivery_value,
     )
 
 

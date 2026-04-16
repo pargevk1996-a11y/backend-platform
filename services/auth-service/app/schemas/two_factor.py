@@ -4,10 +4,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class TwoFactorSetupResponse(BaseModel):
+    """QR-only setup: raw TOTP secret is not exposed over the API."""
+
     model_config = ConfigDict(extra="forbid")
 
-    secret: str
-    provisioning_uri: str
     qr_png_base64: str
 
 

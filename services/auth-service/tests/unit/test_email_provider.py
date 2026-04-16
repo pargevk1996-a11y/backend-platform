@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 from app.integrations.email.provider import EmailProvider
 
@@ -9,7 +11,7 @@ async def test_email_provider_runs_smtp_send(monkeypatch: pytest.MonkeyPatch) ->
     sent_messages: list[dict[str, object]] = []
 
     class FakeSMTP:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *args: object, **kwargs: object) -> None:
             self.host = host
             self.port = port
             self.login_calls: list[tuple[str, str]] = []
@@ -69,7 +71,7 @@ async def test_email_provider_uses_starttls_for_tls_non_ssl_port(
     sent_messages: list[dict[str, object]] = []
 
     class FakeSMTP:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *args: object, **kwargs: object) -> None:
             self.host = host
             self.port = port
             self.starttls_called = False
@@ -130,7 +132,7 @@ async def test_email_provider_uses_smtp_ssl_for_implicit_tls_port(
     sent_messages: list[dict[str, object]] = []
 
     class FakeSMTPSSL:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *args: object, **kwargs: object) -> None:
             self.host = host
             self.port = port
 
@@ -173,3 +175,28 @@ async def test_email_provider_uses_smtp_ssl_for_implicit_tls_port(
             "to": "user@example.com",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_email_provider_does_not_log_body_when_delivery_is_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = EmailProvider(
+        host=None,
+        port=587,
+        username=None,
+        password=None,
+        use_tls=True,
+        from_email=None,
+        require_delivery=False,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.integrations.email.provider"):
+        await provider.send(
+            to_email="user@example.com",
+            subject="Reset",
+            body="Reset code: 123456",
+        )
+
+    assert "email.delivery_skipped" in caplog.text
+    assert "123456" not in caplog.text

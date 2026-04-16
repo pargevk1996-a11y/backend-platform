@@ -11,6 +11,7 @@ fi
 .venv/bin/pip install -r services/auth-service/requirements.lock
 .venv/bin/pip install -r services/user-service/requirements.lock
 .venv/bin/pip install -r services/api-gateway/requirements.lock
+.venv/bin/pip install -r tests/e2e/requirements.txt
 
 chmod +x infra/scripts/generate_dev_env.py
 

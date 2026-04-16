@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
+from app.exceptions.auth import InvalidCredentialsException
 from app.exceptions.two_factor import InvalidChallengeException
 from app.services.auth_service import AuthService
 from app.services.refresh_token_service import TokenPair
@@ -17,6 +18,7 @@ class FakeUser:
     email: str
     password_hash: str
     two_factor_enabled: bool
+    is_active: bool = True
 
 
 class FakeSession:
@@ -142,7 +144,7 @@ async def test_login_requires_2fa_and_challenge_verification_issues_tokens() -> 
     assert "ip_address" not in payload
     assert "user_agent" not in payload
     assert isinstance(payload["ip_fingerprint"], str)
-    assert isinstance(payload["user_agent_fingerprint"], str)
+    assert "user_agent_fingerprint" not in payload
 
     token_pair = await service.verify_login_challenge(
         session,
@@ -157,6 +159,46 @@ async def test_login_requires_2fa_and_challenge_verification_issues_tokens() -> 
     assert token_pair.refresh_token == "refresh"
     assert challenge_key not in redis.store
     assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_login_challenge_accepts_same_ip_different_user_agent() -> None:
+    user = FakeUser(
+        id=uuid4(),
+        email="user@example.com",
+        password_hash="hash",
+        two_factor_enabled=True,
+    )
+    session = FakeSession()
+    redis = FakeRedis()
+    service = AuthService(
+        settings=get_settings(),
+        redis=redis,
+        user_repository=FakeUserRepository(user),
+        password_service=FakePasswordService(),
+        refresh_token_service=FakeRefreshTokenService(),
+        two_factor_service=FakeTwoFactorService(),
+        brute_force_service=FakeBruteForceService(),
+        audit_service=FakeAuditService(),
+    )
+
+    login_step = await service.login(
+        session,
+        email="user@example.com",
+        password="CorrectPassword!1",
+        ip_address="127.0.0.1",
+        user_agent="pytest-agent-a",
+    )
+
+    token_pair = await service.verify_login_challenge(
+        session,
+        challenge_id=login_step.challenge_id or "",
+        totp_code="123456",
+        backup_code=None,
+        ip_address="127.0.0.1",
+        user_agent="pytest-agent-b",
+    )
+    assert token_pair.access_token == "access"
 
 
 @pytest.mark.asyncio
@@ -199,3 +241,35 @@ async def test_login_challenge_rejects_context_mismatch() -> None:
         )
     challenge_key = f"login_challenge:{login_step.challenge_id}"
     assert challenge_key not in redis.store
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_inactive_user() -> None:
+    user = FakeUser(
+        id=uuid4(),
+        email="user@example.com",
+        password_hash="hash",
+        two_factor_enabled=False,
+        is_active=False,
+    )
+    session = FakeSession()
+    redis = FakeRedis()
+    service = AuthService(
+        settings=get_settings(),
+        redis=redis,
+        user_repository=FakeUserRepository(user),
+        password_service=FakePasswordService(),
+        refresh_token_service=FakeRefreshTokenService(),
+        two_factor_service=FakeTwoFactorService(),
+        brute_force_service=FakeBruteForceService(),
+        audit_service=FakeAuditService(),
+    )
+
+    with pytest.raises(InvalidCredentialsException):
+        await service.login(
+            session,
+            email="user@example.com",
+            password="CorrectPassword!1",
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )

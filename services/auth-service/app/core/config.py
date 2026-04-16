@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Annotated, Literal
 
 from cryptography.fernet import Fernet
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ALLOWED_JWT_ALGORITHMS = {
@@ -80,19 +80,34 @@ class Settings(BaseSettings):
     brute_force_password_reset_window_seconds: int = 300
     brute_force_password_reset_lock_seconds: int = 900
 
-    smtp_host: str | None = None
-    smtp_port: int = 587
-    smtp_username: str | None = None
-    smtp_password: str | None = None
-    smtp_use_tls: bool = True
-    smtp_from_email: str | None = None
-
-    access_cookie_name: str = "access_token"
-    refresh_cookie_name: str = "refresh_token"
-    csrf_cookie_name: str = "csrf_token"
-    cookie_secure: bool = True
-    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
-    cookie_domain: str | None = None
+    smtp_host: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_HOST", "smtp_host"),
+    )
+    smtp_port: int = Field(
+        default=587,
+        validation_alias=AliasChoices("SMTP_PORT", "smtp_port"),
+    )
+    smtp_username: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_USERNAME", "smtp_username"),
+    )
+    smtp_password: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_PASSWORD", "smtp_password"),
+    )
+    smtp_require_delivery: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_REQUIRE_DELIVERY", "smtp_require_delivery"),
+    )
+    smtp_use_tls: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SMTP_USE_TLS", "smtp_use_tls"),
+    )
+    smtp_from_email: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_FROM_EMAIL", "smtp_from_email"),
+    )
 
     argon2_time_cost: int = 3
     argon2_memory_cost: int = 65536
@@ -164,11 +179,9 @@ class Settings(BaseSettings):
         public_key = self.jwt_public_key_value
         if "BEGIN" not in private_key or "BEGIN" not in public_key:
             raise ValueError("Deployed asymmetric JWT keys must be PEM-formatted")
+        if not self.smtp_is_configured:
+            raise ValueError("Staging and production require configured SMTP delivery")
 
-        if not self.cookie_secure:
-            raise ValueError("Staging and production require COOKIE_SECURE=true")
-        if self.cookie_samesite == "none":
-            raise ValueError("Staging and production forbid SameSite=None for auth cookies")
         return self
 
     @property
@@ -198,6 +211,34 @@ class Settings(BaseSettings):
     @property
     def totp_encryption_key_value(self) -> str:
         return self.totp_encryption_key.get_secret_value()
+
+    @property
+    def smtp_from_email_value(self) -> str | None:
+        return self.smtp_from_email or self.smtp_username
+
+    @property
+    def smtp_password_value(self) -> str | None:
+        if self.smtp_password is None:
+            return None
+        return self.smtp_password.get_secret_value()
+
+    @property
+    def smtp_is_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from_email_value)
+
+    @property
+    def smtp_require_delivery_value(self) -> bool:
+        if self.smtp_require_delivery is not None:
+            return self.smtp_require_delivery
+        smtp_partially_configured = any(
+            [
+                self.smtp_host,
+                self.smtp_username,
+                self.smtp_password,
+                self.smtp_from_email,
+            ]
+        )
+        return self.service_env != "development" or smtp_partially_configured
 
 
 @lru_cache(maxsize=1)
