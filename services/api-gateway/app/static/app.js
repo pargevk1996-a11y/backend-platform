@@ -25,8 +25,24 @@ const state = {
   twoFactorEnabled: null,
   challengeId: null,
   formMode: "register",
-  setupWindow: null,
+  setupPopup: null,
+  setupPopupOrigin: null,
+  setupPopupReady: false,
+  setupPopupPendingMessage: null,
+  setupPopupWatcher: null,
 };
+
+const SETUP_POPUP_NAME = "backendPlatform2faSetup";
+const SETUP_POPUP_PATH = "/ui/two-factor-setup.html";
+const SETUP_POPUP_MAIN_SOURCE = "backend-platform:2fa-setup:main";
+const SETUP_POPUP_CHILD_SOURCE = "backend-platform:2fa-setup:popup";
+
+const PASSWORD_TOGGLES = [
+  { inputId: "regPassword", buttonId: "toggleRegPassword" },
+  { inputId: "loginPassword", buttonId: "toggleLoginPassword" },
+  { inputId: "resetPassword", buttonId: "toggleResetPassword" },
+  { inputId: "disable2faPassword", buttonId: "toggleDisable2faPassword" },
+];
 
 function baseUrl() {
   return $("baseUrl").value.replace(/\/+$/, "");
@@ -72,7 +88,7 @@ function safeResultText(value, isError) {
     return "2FA enabled.";
   }
   if (value.qr_png_base64) {
-    return "QR code created. Continue setup in the popup window.";
+    return "QR code created. Scan it, enter the authenticator code, then enable 2FA.";
   }
   if (value.requires_2fa) {
     return "2FA challenge created. Enter the authenticator code to continue.";
@@ -106,6 +122,7 @@ function setSessionActive(active) {
   state.sessionActive = active;
   state.canManage2fa = active;
   state.twoFactorEnabled = null;
+  if (!active) closeSetupPopup();
   refreshAccountState();
   refreshTwoFactorState();
 }
@@ -114,6 +131,7 @@ function clearSessionState() {
   state.challengeId = null;
   state.needs2fa = false;
   setTwoFaStep(false);
+  closeSetupPopup();
   setSessionActive(false);
 }
 
@@ -137,26 +155,171 @@ function setTwoFaStep(visible) {
   state.needs2fa = visible;
 }
 
+function setPasswordVisibility(input, button, visible) {
+  input.type = visible ? "text" : "password";
+  button.classList.toggle("is-active", visible);
+  button.setAttribute("aria-pressed", visible ? "true" : "false");
+  button.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+  button.title = visible ? "Hide password" : "Show password";
+}
+
+function hidePassword(inputId) {
+  const config = PASSWORD_TOGGLES.find((item) => item.inputId === inputId);
+  if (!config) return;
+
+  const input = $(config.inputId);
+  const button = $(config.buttonId);
+  if (!input || !button) return;
+
+  setPasswordVisibility(input, button, false);
+}
+
+function resetPasswordVisibility() {
+  PASSWORD_TOGGLES.forEach(({ inputId }) => hidePassword(inputId));
+}
+
+function syncPasswordToggleStates() {
+  PASSWORD_TOGGLES.forEach(({ inputId, buttonId }) => {
+    const input = $(inputId);
+    const button = $(buttonId);
+    if (!input || !button) return;
+
+    button.disabled = input.disabled;
+    if (input.disabled) setPasswordVisibility(input, button, false);
+  });
+}
+
+function setupPasswordToggles() {
+  PASSWORD_TOGGLES.forEach(({ inputId, buttonId }) => {
+    const input = $(inputId);
+    const button = $(buttonId);
+    if (!input || !button) return;
+
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+
+      const visible = input.type === "password";
+      setPasswordVisibility(input, button, visible);
+      input.focus({ preventScroll: true });
+    });
+  });
+
+  syncPasswordToggleStates();
+}
+
+function setupPopupUrl() {
+  const url = new URL(SETUP_POPUP_PATH, `${baseUrl()}/`);
+  url.searchParams.set("openerOrigin", window.location.origin);
+  url.searchParams.set("v", "20260416-2fa-popup-close");
+  return url;
+}
+
+function setupPopupIsOpen() {
+  return Boolean(state.setupPopup && !state.setupPopup.closed);
+}
+
+function cleanupSetupPopup({ refresh = true } = {}) {
+  if (state.setupPopupWatcher) {
+    clearInterval(state.setupPopupWatcher);
+    state.setupPopupWatcher = null;
+  }
+  state.setupPopup = null;
+  state.setupPopupOrigin = null;
+  state.setupPopupReady = false;
+  state.setupPopupPendingMessage = null;
+  if (refresh) refreshTwoFactorState();
+}
+
+function closeSetupPopup() {
+  const popup = state.setupPopup;
+  cleanupSetupPopup({ refresh: false });
+  if (popup && !popup.closed) {
+    popup.close();
+  }
+  refreshTwoFactorState();
+}
+
+function sendSetupPopupMessage(type, payload = {}, { queueUntilReady = true } = {}) {
+  if (!setupPopupIsOpen() || !state.setupPopupOrigin) return false;
+
+  const message = {
+    source: SETUP_POPUP_MAIN_SOURCE,
+    type,
+    payload,
+  };
+
+  if (queueUntilReady && !state.setupPopupReady) {
+    state.setupPopupPendingMessage = message;
+    return false;
+  }
+
+  state.setupPopup.postMessage(message, state.setupPopupOrigin);
+  return true;
+}
+
+function flushSetupPopupMessage() {
+  if (!state.setupPopupPendingMessage || !setupPopupIsOpen() || !state.setupPopupOrigin) return;
+  state.setupPopup.postMessage(state.setupPopupPendingMessage, state.setupPopupOrigin);
+  state.setupPopupPendingMessage = null;
+}
+
+function openSetupPopup() {
+  if (setupPopupIsOpen()) {
+    state.setupPopup.focus();
+    return state.setupPopup;
+  }
+  if (state.setupPopup) cleanupSetupPopup({ refresh: false });
+
+  const url = setupPopupUrl();
+  const popup = window.open(
+    url.href,
+    SETUP_POPUP_NAME,
+    "popup,width=520,height=760,menubar=no,toolbar=no,location=no,status=no",
+  );
+
+  if (!popup) {
+    setStatus("Popup blocked. Allow popups and try again.", true);
+    return null;
+  }
+
+  state.setupPopup = popup;
+  state.setupPopupOrigin = url.origin;
+  state.setupPopupReady = false;
+  state.setupPopupPendingMessage = null;
+  state.setupPopupWatcher = setInterval(() => {
+    if (!setupPopupIsOpen()) cleanupSetupPopup();
+  }, 500);
+  popup.focus();
+  refreshTwoFactorState();
+  return popup;
+}
+
 function refreshTwoFactorState() {
   const active = state.canManage2fa && hasActiveSession();
   const statusKnown = typeof state.twoFactorEnabled === "boolean";
   const canEnable = active && statusKnown && state.twoFactorEnabled === false;
+  const setupOpen = setupPopupIsOpen();
   const canDisable = active && statusKnown && state.twoFactorEnabled === true;
 
   $("setup2faRow").classList.toggle("hidden", active ? !canEnable : false);
   $("disable2faSection").classList.toggle("hidden", !canDisable);
 
-  $("setup2faBtn").disabled = !canEnable || state.loading;
+  $("setup2faBtn").textContent = setupOpen ? "Setup window is open" : "Enable 2FA";
+  $("setup2faBtn").disabled = !canEnable || setupOpen || state.loading;
   $("disable2faPassword").disabled = !canDisable || state.loading;
   $("disable2faCode").disabled = !canDisable || state.loading;
   $("disable2faBtn").disabled = !canDisable || state.loading;
   $("logoutBtn").disabled = !hasActiveSession() || state.loading;
+  syncPasswordToggleStates();
   $("setupNote").textContent = !active
     ? "Sign in or create an account before managing 2FA."
     : !statusKnown
       ? "Loading 2FA status..."
       : canEnable
-        ? "2FA is off for this account. Open setup, scan the QR, then confirm the authenticator code."
+        ? setupOpen
+          ? "Setup window is open. Scan the QR there and enter the authenticator code."
+          : "2FA is off for this account. Open setup, scan the QR, then confirm the authenticator code."
         : "2FA is on for this account. Use the form below to disable it.";
 }
 
@@ -179,6 +342,7 @@ function refreshAccountState() {
     const el = $(id);
     if (el) el.disabled = isLocked || state.loading;
   });
+  syncPasswordToggleStates();
   $("formGuide").textContent = formGuideText(state.formMode);
 }
 
@@ -325,212 +489,10 @@ function ensureTotp(value) {
   return code;
 }
 
-function defaultSetupWindowPlaceholder() {
-  return "123456";
-}
-
-function setSetupWindowMessage(child, message, tone = "muted") {
-  if (!child || child.closed) return;
-  const input = child.document.getElementById("popupTotpCode");
-  if (!input) return;
-  input.placeholder = message || defaultSetupWindowPlaceholder();
-  input.style.borderColor =
-    tone === "error" ? "#ff6b6b" : tone === "success" ? "#6ee7a8" : "#2d3440";
-}
-
-function scheduleSetupWindowFit(child) {
-  setTimeout(() => fitSetupWindow(child), 0);
-  setTimeout(() => fitSetupWindow(child), 100);
-}
-
-function openSetupWindow() {
-  const popupWidth = 400;
-  const popupHeight = 470;
-  const child = window.open(
-    "",
-    "backendPlatform2faSetup",
-    `popup,width=${popupWidth},height=${popupHeight}`,
-  );
-  if (!child) {
-    setStatus("Popup blocked. Allow popups and try again.", true);
-    return null;
-  }
-  child.document.open();
-  child.document.write(`
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Enable 2FA</title>
-  </head>
-  <body style="margin:0"></body>
-</html>`);
-  child.document.close();
-
-  const doc = child.document;
-  const root = doc.documentElement;
-  const body = doc.body;
-  root.style.height = "100%";
-  root.style.overflow = "hidden";
-  body.style.height = "100%";
-  body.style.margin = "0";
-  body.style.overflow = "hidden";
-  body.style.background = "#050505";
-  body.style.color = "#f3f5f7";
-  body.style.fontFamily = "system-ui,-apple-system,Segoe UI,sans-serif";
-
-  const main = doc.createElement("main");
-  main.id = "setupRoot";
-  main.style.height = "100%";
-  main.style.padding = "18px";
-  main.style.display = "grid";
-  main.style.overflow = "hidden";
-
-  const stage = doc.createElement("div");
-  stage.id = "setupStage";
-  stage.style.minHeight = "0";
-  stage.style.display = "grid";
-  stage.style.placeItems = "center";
-  stage.style.overflow = "hidden";
-
-  const stack = doc.createElement("div");
-  stack.id = "setupStack";
-  stack.style.display = "grid";
-  stack.style.justifyItems = "center";
-  stack.style.alignContent = "center";
-  stack.style.gap = "12px";
-  stack.style.width = "220px";
-  stack.style.maxWidth = "100%";
-
-  const qrMount = doc.createElement("div");
-  qrMount.id = "qrMount";
-  qrMount.style.width = "100%";
-  qrMount.style.display = "grid";
-  qrMount.style.placeItems = "center";
-  qrMount.style.overflow = "hidden";
-
-  const qrFrame = doc.createElement("div");
-  qrFrame.id = "setupQrFrame";
-  qrFrame.style.boxSizing = "border-box";
-  qrFrame.style.width = "220px";
-  qrFrame.style.height = "220px";
-  qrFrame.style.background = "transparent";
-  qrFrame.style.display = "grid";
-  qrFrame.style.placeItems = "center";
-  qrFrame.style.overflow = "hidden";
-  qrFrame.style.lineHeight = "0";
-
-  qrMount.append(qrFrame);
-
-  const inputWrap = doc.createElement("div");
-  inputWrap.id = "setupCodeSection";
-  inputWrap.style.width = "100%";
-
-  const input = doc.createElement("input");
-  input.id = "popupTotpCode";
-  input.autocomplete = "off";
-  input.inputMode = "numeric";
-  input.maxLength = 8;
-  input.setAttribute("aria-label", "Authenticator code");
-  input.placeholder = "123456";
-  input.style.width = "100%";
-  input.style.minWidth = "0";
-  input.style.height = "44px";
-  input.style.padding = "10px 12px";
-  input.style.border = "1px solid #2d3440";
-  input.style.borderRadius = "10px";
-  input.style.background = "#12161d";
-  input.style.color = "#f3f5f7";
-  input.style.font = "inherit";
-  input.style.outline = "none";
-  input.placeholder = defaultSetupWindowPlaceholder();
-
-  inputWrap.append(input);
-  stack.append(qrMount, inputWrap);
-  stage.append(stack);
-  main.append(stage);
-  body.replaceChildren(main);
-
-  try {
-    child.resizeTo(popupWidth, popupHeight);
-  } catch (_) {}
-  child.addEventListener("resize", () => scheduleSetupWindowFit(child));
-  scheduleSetupWindowFit(child);
-  state.setupWindow = child;
-  return child;
-}
-
-function fitSetupWindow(child) {
-  if (!child || child.closed) return;
-  const doc = child.document;
-  const stage = doc.getElementById("setupStage");
-  const stack = doc.getElementById("setupStack");
-  const inputSection = doc.getElementById("setupCodeSection");
-  const qrFrame = doc.getElementById("setupQrFrame");
-  if (!stage || !stack || !inputSection || !qrFrame) return;
-
-  const stageRect = stage.getBoundingClientRect();
-  const stackGap = 12;
-  const availableWidth = stageRect.width;
-  const availableHeight = stageRect.height - inputSection.offsetHeight - stackGap;
-  const qrSize = Math.max(150, Math.min(220, availableWidth, availableHeight));
-  stack.style.width = `${Math.floor(qrSize)}px`;
-  qrFrame.style.width = `${Math.floor(qrSize)}px`;
-  qrFrame.style.height = `${Math.floor(qrSize)}px`;
-}
-
-function updateSetupWindowQr(child, qrBase64) {
-  const qrFrame = child.document.getElementById("setupQrFrame");
-  if (!qrFrame) return;
-  qrFrame.innerHTML = `
-    <img
-      alt="Google Authenticator QR"
-      src="data:image/png;base64,${qrBase64}"
-      style="display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;image-rendering:pixelated"
-    />
-  `;
-  const input = child.document.getElementById("popupTotpCode");
-  if (input) {
-    input.disabled = false;
-    input.value = "";
-    input.placeholder = defaultSetupWindowPlaceholder();
-    input.style.borderColor = "#2d3440";
-    input.focus();
-  }
-  scheduleSetupWindowFit(child);
-}
-
-function updateSetupWindowResult(value, isError) {
-  const child = state.setupWindow;
-  if (!child || child.closed) return;
-  const input = child.document.getElementById("popupTotpCode");
-  if (input) {
-    if (isError) {
-      input.disabled = false;
-      input.value = "";
-      input.placeholder = "Wrong code";
-      input.style.borderColor = "#ff6b6b";
-      input.focus();
-    } else {
-      input.disabled = true;
-      input.value = "";
-      input.placeholder = "Enabled";
-      input.style.borderColor = "#6ee7a8";
-      setTimeout(() => {
-        if (child.closed) return;
-        child.close();
-        if (state.setupWindow === child) state.setupWindow = null;
-      }, 180);
-      return;
-    }
-  }
-  scheduleSetupWindowFit(child);
-}
-
-window.completeTwoFactorEnable = async (code) => {
+async function completeTwoFactorEnable(code) {
   setLoading(true);
   setStatus("Enabling 2FA...", false);
+  sendSetupPopupMessage("submitting", { message: "Checking authenticator code..." }, { queueUntilReady: false });
   try {
     ensureSession();
     const totp = ensureTotp(code);
@@ -539,15 +501,39 @@ window.completeTwoFactorEnable = async (code) => {
     refreshTwoFactorState();
     setStatus("2FA enabled.", false);
     setResult(body, false);
-    updateSetupWindowResult(body, false);
+    sendSetupPopupMessage("enabled", { message: "2FA enabled. Closing setup..." }, { queueUntilReady: false });
+    setTimeout(() => closeSetupPopup(), 250);
   } catch (err) {
-    setStatus(err.message || "Enable 2FA failed.", true);
+    const message = err.message || "Enable 2FA failed.";
+    setStatus(message, true);
     setResult(err, true);
-    updateSetupWindowResult(err, true);
+    sendSetupPopupMessage("error", { message }, { queueUntilReady: false });
   } finally {
     setLoading(false);
   }
-};
+}
+
+window.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data || typeof data !== "object" || data.source !== SETUP_POPUP_CHILD_SOURCE) return;
+  if (state.setupPopupOrigin && event.origin !== state.setupPopupOrigin) return;
+  if (state.setupPopup && event.source && event.source !== state.setupPopup) return;
+
+  if (data.type === "ready") {
+    state.setupPopupReady = true;
+    flushSetupPopupMessage();
+    return;
+  }
+
+  if (data.type === "submit") {
+    void completeTwoFactorEnable(String(data.payload?.code || ""));
+    return;
+  }
+
+  if (data.type === "closed") {
+    cleanupSetupPopup();
+  }
+});
 
 $("regBtn").addEventListener("click", async () => {
   setLoading(true);
@@ -567,6 +553,7 @@ $("regBtn").addEventListener("click", async () => {
     await syncSessionInfo();
     setTwoFaStep(false);
     $("regPassword").value = "";
+    hidePassword("regPassword");
     setStatus("Account created. Use Enable 2FA when ready.", false);
     setResult(body, false);
   } catch (err) {
@@ -598,6 +585,7 @@ $("loginBtn").addEventListener("click", async () => {
     }
     setResult(body, false);
     $("loginPassword").value = "";
+    hidePassword("loginPassword");
   } catch (err) {
     setStatus(err.message || "Login failed.", true);
     setResult(err, true);
@@ -648,6 +636,7 @@ $("resetConfirmBtn").addEventListener("click", async () => {
     setResult(body, false);
     $("resetCode").value = "";
     $("resetPassword").value = "";
+    hidePassword("resetPassword");
   } catch (err) {
     setStatus(err.message || "Password reset failed.", true);
     setResult(err, true);
@@ -682,42 +671,34 @@ $("login2faBtn").addEventListener("click", async () => {
 });
 
 $("setup2faBtn").addEventListener("click", async () => {
-  const child = openSetupWindow();
-  if (!child) return;
+  try {
+    ensureSession();
+  } catch (_) {
+    return;
+  }
+
+  const popup = openSetupPopup();
+  if (!popup) return;
+
   setLoading(true);
   setStatus("Creating Google Authenticator QR...", false);
   setResult("Creating Google Authenticator QR...", false);
+  sendSetupPopupMessage("loading", { message: "Generating QR code..." });
   try {
-    ensureSession();
     const body = await post("/v1/two-factor/setup", {}, { csrf: true });
     if (body.qr_png_base64) {
-      updateSetupWindowQr(child, body.qr_png_base64);
+      sendSetupPopupMessage("qr", { qrPngBase64: body.qr_png_base64 });
     }
-    const input = child.document.getElementById("popupTotpCode");
-    const submitPopupCode = () => {
-      if (input.disabled) return;
-      input.disabled = true;
-      input.placeholder = "Checking...";
-      input.style.borderColor = "#2d3440";
-      window.completeTwoFactorEnable(input.value);
-    };
-    input.onkeydown = (event) => {
-      if (event.key !== "Enter" || input.disabled) return;
-      event.preventDefault();
-      submitPopupCode();
-    };
-    input.oninput = () => {
-      input.value = input.value.replace(/\D/g, "").slice(0, 8);
-      setSetupWindowMessage(child, defaultSetupWindowPlaceholder());
-    };
-    setStatus("QR opened in a new window.", false);
+    setStatus("Setup window opened. Scan the QR and enter the authenticator code there.", false);
     setResult(body, false);
   } catch (err) {
-    setStatus(err.message || "2FA setup failed.", true);
+    const message = err.message || "2FA setup failed.";
+    setStatus(message, true);
     setResult(err, true);
-    updateSetupWindowResult(err, true);
+    sendSetupPopupMessage("error", { message });
   } finally {
     setLoading(false);
+    refreshTwoFactorState();
   }
 });
 
@@ -752,6 +733,7 @@ $("disable2faBtn").addEventListener("click", async () => {
     setResult(body, false);
     $("disable2faPassword").value = "";
     $("disable2faCode").value = "";
+    hidePassword("disable2faPassword");
   } catch (err) {
     setStatus(err.message || "Disable 2FA failed.", true);
     setResult(err, true);
@@ -778,6 +760,7 @@ $("logoutBtn").addEventListener("click", async () => {
   }
 });
 
+setupPasswordToggles();
 setFormMode("register");
 setSessionActive(false);
 
@@ -810,6 +793,8 @@ window.addEventListener("load", () => {
       const el = $(id);
       if (el) el.value = "";
     });
+    resetPasswordVisibility();
+    syncPasswordToggleStates();
     void restoreBrowserSession();
   }, 50);
 });
