@@ -2,394 +2,356 @@
 
 ## Глава 1. Что это за проект
 
-`backend-platform` - это производственная микросервисная backend-платформа на Python. Проект построен вокруг трех основных идей:
+`backend-platform` - это security-first backend-платформа в микросервисном стиле. Проект не пытается быть большим монолитом с одной точкой отказа. Вместо этого он разделяет ответственность между сервисами и собирает вокруг этого набора production-like практики: Docker, CI, policy guardrails, rate limiting, audit и безопасную обработку секретов.
 
-1. Безопасная аутентификация.
-2. Чистая layered architecture.
-3. Production-like инфраструктура с Docker, CI, security checks и observability-заготовками.
+Сейчас платформа состоит из пяти основных частей:
 
-Главная ценность проекта не в том, что он просто запускает FastAPI endpoints. Его ценность в том, что он показывает инженерный подход: сервисы разделены по ответственности, секреты валидируются, JWT сделан аккуратно, brute-force protection учитывает privacy, а CI не только запускает тесты, но и проверяет security guardrails.
+- `services/auth-service` - identity lifecycle: регистрация, логин, TOTP 2FA, refresh rotation, revoke, password reset, audit.
+- `services/user-service` - пользовательский контекст, профили, роли, permissions, RBAC.
+- `services/api-gateway` - edge-вход, same-origin browser auth, cookie/session orchestration, CSRF guard, proxy hardening.
+- `services/notification-service` - WIP health-only сервис, который уже собирается, тестируется и сканируется как часть платформы.
+- `shared/python` - заготовка для versioned internal contracts и общих утилит.
 
-Проект состоит из нескольких сервисов:
-
-- `auth-service` - регистрация, логин, JWT, refresh token rotation, 2FA, password reset, audit events.
-- `user-service` - пользовательский контекст, профили, роли, permissions, RBAC.
-- `api-gateway` - входная точка, проксирование запросов, JWT verification, rate limiting.
-- `notification-service` - пока WIP-сервис с health endpoints и базовой security-обвязкой.
-- `shared/python` - общие контракты и утилиты, подготовленные к versioned internal package подходу.
-
-Вместе эти части образуют основу backend-платформы, которую можно развивать дальше: добавлять billing, notification delivery, event bus, OpenTelemetry tracing, centralized policy enforcement и другие production-функции.
+Главная идея проекта не в количестве endpoint'ов, а в том, как они собраны: токены не светятся браузеру, brute-force ключи не раскрывают email в Redis, локальные env-файлы генерируются со strong secrets, а security-политики закреплены в тестах и workflow'ах.
 
 ## Глава 2. Общая архитектура
 
-Проект использует layered architecture. Это значит, что код не свален в один большой `main.py`, а разложен по слоям:
+Проект использует layered architecture. Внутри сервисов код разложен по слоям:
 
-- `api/` - HTTP endpoints и FastAPI routers.
-- `core/` - настройки, security helpers, middleware, constants, rate limiting.
-- `services/` - бизнес-логика.
-- `repositories/` - работа с базой данных.
-- `models/` - SQLAlchemy модели.
-- `schemas/` - Pydantic request/response модели.
-- `integrations/` - Redis, email, TOTP и внешние технические зависимости.
-- `observability/` - заготовки под tracing, metrics, audit.
-- `tests/` - unit, integration и security tests.
+- `api/` - FastAPI routers и HTTP-contract;
+- `core/` - config, middleware, security helpers, constants, validation;
+- `services/` - бизнес-логика;
+- `repositories/` - доступ к БД;
+- `models/` - SQLAlchemy модели;
+- `schemas/` - Pydantic request/response схемы;
+- `integrations/` - Redis, email, TOTP и внешние технические зависимости;
+- `tests/` - unit, integration, security, e2e.
 
-Главный принцип такой: endpoint не должен знать детали базы данных, а repository не должен знать правила бизнеса. Например, endpoint `/auth/login` принимает payload, передает данные в `AuthService`, а уже `AuthService` решает, проверить ли пароль, создать ли 2FA challenge, выдать ли token pair, записать ли audit event.
+Типичный путь запроса выглядит так:
 
-Такой подход дает несколько преимуществ:
+1. Gateway принимает внешний HTTP-запрос.
+2. Gateway определяет, публичный endpoint или защищенный.
+3. Для browser session flow gateway работает через HttpOnly cookies и CSRF.
+4. Дальше запрос отправляется в allowlist-based downstream service.
+5. Downstream service валидирует контракт и выполняет бизнес-логику.
+6. Ответ возвращается через gateway уже в санитизированной форме для браузера.
 
-1. Код проще тестировать.
-2. Бизнес-логику можно читать отдельно от HTTP-слоя.
-3. Репозитории можно менять без переписывания endpoints.
-4. Security checks легче держать в одном месте.
-5. Проект легче масштабировать командой.
+Такой расклад позволяет держать security-политику централизованно на edge и при этом не смешивать бизнес-правила с транспортным слоем.
 
 ## Глава 3. Auth Service
 
-`auth-service` - самый важный сервис с точки зрения безопасности. Он отвечает за identity lifecycle: регистрацию, логин, двухфакторную аутентификацию, refresh tokens, password reset и audit.
+`auth-service` - центр безопасности проекта. Он отвечает за:
+
+- регистрацию;
+- логин;
+- challenge-based 2FA;
+- refresh token rotation и revoke;
+- password reset;
+- audit events;
+- persistent account lock;
+- выдачу JWT.
 
 ### Регистрация
 
-Пользователь отправляет email и пароль. Endpoint валидирует request schema, затем передает управление в `AuthService.register`.
+Flow регистрации:
 
-Пошагово:
+1. Email валидируется и нормализуется.
+2. Проверяется уникальность пользователя.
+3. Пароль хешируется через Argon2.
+4. Создается пользователь.
+5. Выпускается access/refresh token pair.
+6. Пишется audit event.
+7. Транзакция коммитится.
 
-1. Проверяется, существует ли пользователь с таким email.
-2. Пароль хешируется через Argon2.
-3. Создается пользователь.
-4. Создается access token и refresh token.
-5. Пишется audit event о регистрации.
-6. Транзакция коммитится.
-7. Клиент получает token pair.
-
-Важно, что пароль не хранится в открытом виде. Хранится только password hash.
+Важный нюанс: браузер не получает эти токены напрямую. Для browser flow gateway перехватывает ответ auth-service, кладет токены в HttpOnly cookies и отдает фронту только безопасный status JSON.
 
 ### Логин
 
-Логин сделан аккуратно, с учетом security-рискoв.
+Логин сделан с учетом anti-enumeration и brute-force защиты:
 
-Пошагово:
+1. Сервис проверяет lock по privacy-safe identifier.
+2. Ищет пользователя с `SELECT ... FOR UPDATE`.
+3. Для несуществующего пользователя выполняет dummy password verification.
+4. Для неверного пароля пишет audit event и увеличивает counters.
+5. После трех неверных паролей аккаунт получает persistent lock.
+6. Снять lock может только успешный password reset.
 
-1. Email нормализуется.
-2. Формируется brute-force identifier из email и IP.
-3. Проверяется, не заблокирован ли identifier.
-4. Пользователь ищется в базе.
-5. Если пользователь не найден, выполняется dummy password verification.
-6. Если пароль неверный, фиксируется failed attempt и audit event.
-7. Если пароль верный, failed attempts очищаются.
-8. Если включена 2FA, создается login challenge.
-9. Если 2FA не включена, выдаются tokens.
+### 2FA challenge
 
-Dummy password verification важен против timing attacks. Без него атакующий мог бы измерять разницу между "пользователь существует" и "пользователь не существует".
+Если `two_factor_enabled=true`, токены не выдаются сразу. Вместо этого создается challenge в Redis.
 
-### 2FA login challenge
+Challenge содержит только то, что реально нужно для безопасной проверки:
 
-Если у пользователя включена двухфакторная аутентификация, сервис не выдает токены сразу. Вместо этого создается challenge.
+- `user_id`;
+- fingerprint IP;
+- optional gateway-bound challenge nonce для browser flow;
+- TTL.
 
-Challenge содержит:
+При подтверждении challenge:
 
-- user id;
-- privacy-safe fingerprint IP;
-- privacy-safe fingerprint user-agent;
-- TTL в Redis.
-
-Когда пользователь вводит TOTP или backup code, сервис:
-
-1. Находит challenge.
-2. Проверяет, что challenge context совпадает.
-3. Проверяет TOTP или backup code.
-4. Удаляет challenge.
-5. Выдает token pair.
-6. Пишет audit event.
-
-Это защищает от простой подмены challenge id и повторного использования challenge после успешного входа.
-
-### Refresh tokens
-
-Refresh token flow построен вокруг rotation.
-
-Идея такая: refresh token не должен жить как вечный bearer secret. После использования он должен заменяться новым. Если старый refresh token пытаются использовать повторно, это может означать кражу токена.
-
-Поэтому сервис:
-
-1. Декодирует refresh token.
-2. Проверяет type claim.
-3. Проверяет наличие токена в базе.
-4. Проверяет, не revoked ли он.
-5. Выпускает новую пару токенов.
-6. Старый refresh token помечает как использованный/замененный.
-7. При reuse фиксирует security event и отзывает family.
-
-Refresh token хранится не как plain token, а через hash с pepper.
+1. challenge читается из Redis;
+2. для browser flow сначала проверяется gateway-bound nonce, а для прямого API flow остается fallback на IP fingerprint;
+3. валидируется TOTP или backup code;
+4. challenge удаляется;
+5. только после этого выдаются токены.
 
 ### Password reset
 
-Password reset построен так, чтобы не раскрывать существование email.
+Password reset остается privacy-safe:
 
-Пошагово:
+- endpoint отвечает одинаково, даже если email не существует;
+- reset code имеет TTL;
+- после успешного reset меняется пароль;
+- refresh tokens и access sessions отзываются;
+- persistent account lock очищается.
 
-1. Клиент отправляет email.
-2. Сервис всегда отвечает одинаково, даже если пользователя нет.
-3. Если пользователь есть, создается reset code/token.
-4. Токен хранится privacy-safe способом.
-5. При подтверждении проверяется code, TTL и status.
-6. Пароль меняется.
-7. Refresh/session data пользователя отзывается.
-8. Пишется audit event.
-
-Такой подход снижает риск user enumeration.
+Именно password reset является единственным штатным способом разблокировать аккаунт после трех неверных попыток логина.
 
 ## Глава 4. JWT стратегия
 
-JWT в проекте сделан не как простой tutorial-вариант, а ближе к production-подходу.
+JWT в проекте завязаны на `PyJWT` и единый policy across services.
 
 Ключевые решения:
 
-- алгоритм по умолчанию `RS256`;
-- валидация algorithm через allowlist;
-- `algorithms=[settings.jwt_algorithm]` передается списком;
-- проверяются `aud`, `iss`, `nbf`, `exp`, `type`;
-- обязательные claims задаются через `options={"require": [...]}`;
-- access и refresh tokens разделены по `type`;
-- production/staging запрещают HS algorithms;
-- production/staging требуют PEM-like ключи.
+- алгоритм по умолчанию - `RS256`;
+- `python-jose` запрещен workflow-политикой;
+- в deployed env запрещены HS-algorithms;
+- access token и refresh token разделены по `type`;
+- `iss`, `aud`, `exp`, `nbf`, `iat` валидируются;
+- access token несет `sid`;
+- refresh token несет `sid` и `family_id`.
 
-Почему это важно:
+Это нужно не только ради "чистой" JWT-теории. `sid` позволяет быстро отзывать access session через Redis marker, а `family_id` нужен для корректного revoke/reuse handling у refresh tokens. Для refresh rotation также добавлено короткое retry-safe окно, чтобы легитимные дубли refresh-запросов не отзывали всю token family мгновенно.
 
-1. RS256 использует асимметричные ключи.
-2. Public key можно отдавать сервисам для верификации.
-3. Private key остается только у auth-service.
-4. Проверка `aud` и `iss` защищает от токенов из другого контекста.
-5. Проверка `type` не дает использовать refresh token как access token.
-6. Guardrail в CI запрещает `python-jose`, чтобы команда случайно не вернулась к нежелательной JWT-библиотеке.
+## Глава 5. Anti-Abuse: Rate Limiting, Brute-Force, Account Lock
 
-## Глава 5. Brute-force protection
+В проекте есть два слоя защиты от перебора:
 
-Brute-force protection вынесен в отдельный сервис и работает по скоупам:
+1. rate limiting;
+2. brute-force state с lock windows и account-level counters.
+
+Основные скоупы:
 
 - `login`;
+- `login_account`;
 - `2fa`;
 - `password_reset`;
+- `password_reset_account`;
 - `password_reset_confirm`;
-- другие rate-limit scopes.
+- `register`, `refresh`, `revoke`;
+- `2fa_setup`, `2fa_enable`, `2fa_disable`, `2fa_regenerate`;
+- `public_auth`, `protected` на gateway.
 
-Идентификаторы не кладутся в Redis в plain form. Вместо этого используются HMAC-based privacy-safe keys.
+Redis keys не используют email, IP или другие identifiers в открытом виде. Вместо этого применяются HMAC-based privacy-safe fingerprints. Это важно, потому что Redis keyspace нередко попадает в отладку, дампы и инцидентные снимки.
 
-Это важно, потому что Redis keys часто попадают в логи, debug dumps, monitoring или incident snapshots. Если в ключах лежит email или IP в открытом виде, это становится privacy leak.
+Отдельно от временных lock windows есть persistent account lock:
 
-Пошагово brute-force flow выглядит так:
-
-1. Перед действием сервис проверяет lock state.
-2. При неудачной попытке увеличивается счетчик.
-3. Если лимит превышен, identifier блокируется на заданное время.
-4. При успешном действии failed attempts очищаются.
-
-Такой подход защищает логин и 2FA не только от прямого перебора паролей, но и от перебора TOTP/backup codes.
+- после трех неверных паролей пользователь блокируется;
+- блокировка хранится в БД (`locked_at`, `lock_reason`);
+- обычный повторный логин ее не снимает;
+- пароль нужно сбросить через password reset flow.
 
 ## Глава 6. User Service и RBAC
 
-`user-service` отвечает за пользовательский контекст и authorization data.
+`user-service` хранит authorization context и профиль пользователя.
 
-Основные сущности:
+Главные сущности:
 
-- user;
-- profile;
-- role;
-- permission;
-- user_role;
-- role_permission;
-- audit_event.
+- `app_users`;
+- `user_profiles`;
+- `roles`;
+- `permissions`;
+- `user_roles`;
+- `role_permissions`;
+- `audit_events`.
 
-RBAC нормализован через отдельные таблицы. Это правильный фундамент, потому что роли и permissions не зашиты в код как случайные строки в каждом endpoint.
+Базовые endpoints:
 
-Пример flow для `/users/me`:
+- `GET /v1/users/me`;
+- `GET /v1/profiles/me`;
+- `PATCH /v1/profiles/me`;
+- `GET /v1/roles/me`;
+- `GET /v1/permissions/me`.
 
-1. Сервис получает access token.
-2. Декодирует и валидирует token claims.
-3. Находит user context.
-4. Загружает roles.
-5. Загружает permissions.
-6. Возвращает пользователю его identity context.
-
-Для endpoints, где нужна проверка прав, используется `ensure_permission`.
-
-Например, чтение чужого user profile требует permission вроде `users:read`. Изменение своего profile требует permission вроде `profile:write:self`.
+RBAC здесь сделан как нормализованная модель, а не как набор случайных строк в controller-коде. Это дает нормальную точку роста для fine-grained authorization.
 
 ## Глава 7. API Gateway
 
-`api-gateway` - входная точка для внешнего клиента. Он не реализует всю бизнес-логику, а маршрутизирует запросы в нужные downstream-сервисы.
+`api-gateway` - не просто proxy. Он реализует browser auth contract для всей платформы.
 
-Основные функции gateway:
+Что делает gateway:
 
-- принимает external traffic;
-- проверяет public/protected endpoint;
-- валидирует access token для protected endpoints;
-- применяет rate limiting;
-- санитизирует headers;
-- проксирует запросы в auth-service/user-service/notification-service;
-- возвращает downstream response клиенту.
+- маршрутизирует запросы только в allowlist сервисов;
+- различает public/protected endpoints;
+- проверяет JWT на защищенных маршрутах;
+- умеет принимать access token из bearer header или из cookie;
+- ставит HttpOnly access/refresh cookies;
+- требует CSRF для state-changing cookie-auth запросов;
+- фильтрует опасные request/response headers;
+- отдает фронту безопасный JSON вместо сырого token pair.
 
-Gateway особенно важен как место, где можно централизовать edge security:
+Browser contract сейчас такой:
 
-- request id;
-- security headers;
-- CORS;
-- rate limiting;
-- JWT verification;
-- header sanitization;
-- future policy enforcement.
+1. Браузер работает только через gateway на том же origin.
+2. После register/login/refresh браузер получает не токены, а status JSON.
+3. Реальные access/refresh values лежат в cookies.
+4. Во время login -> login/2fa gateway держит временный HttpOnly challenge cookie и сам пробрасывает nonce в auth-service.
+5. Для `POST/PUT/PATCH/DELETE` в cookie-auth flow нужен `X-CSRF-Token`.
+6. Downstream services по-прежнему получают `Authorization: Bearer <access-token>` от gateway, а не cookie.
 
-Пока gateway проверяет JWT и route-level public/protected статус. Более глубокий permission enforcement еще остается roadmap-level задачей.
+Для UI также добавлен `GET /v1/sessions/me`, который возвращает безопасный session snapshot, включая `two_factor_enabled`. Это позволяет фронту показывать только релевантные 2FA-действия.
 
 ## Глава 8. Notification Service
 
-`notification-service` сейчас намеренно помечен как WIP.
+`notification-service` сейчас честно помечен как WIP.
 
-Раньше он выглядел как пустой скаффолд: файлы были, но реального сервиса, Dockerfile, lock-файла и тестов не было. Теперь он доведен до честного минимального состояния:
+Что у него уже есть:
 
-- есть `pyproject.toml`;
-- есть `requirements.lock`;
-- есть `app/main.py`;
-- есть health endpoints;
-- есть config;
-- есть security middleware;
-- есть schemas;
-- есть tests;
-- есть Dockerfile;
-- сервис подключен в CI.
+- health endpoints;
+- базовый config;
+- security middleware;
+- Docker image;
+- тесты;
+- участие в CI/security workflows.
 
-Важно: это не полноценная delivery-система. Он пока не отправляет email/SMS/push. В README прямо написано, что production traffic нельзя подключать до реализации:
+Чего у него пока нет:
 
-- delivery provider;
+- real delivery provider;
 - queue boundary;
 - retry policy;
 - delivery audit trail;
-- tests around delivery.
+- полноценных delivery tests.
 
-Это честный подход. Лучше иметь WIP-сервис, явно помеченный как WIP, чем пустой каталог, который выглядит готовым.
+Это правильное состояние для WIP-сервиса: он не притворяется production-ready.
 
 ## Глава 9. Конфигурация и секреты
 
-Конфигурация реализована через `pydantic-settings`.
+Конфигурация построена на `pydantic-settings`.
 
-Важные решения:
+Что важно:
 
-- secrets описаны через `SecretStr`;
-- peppers имеют минимальную длину;
-- production/staging валидируют JWT algorithm;
-- production/staging требуют explicit CORS origins;
-- wildcard CORS запрещен в deployed environments;
-- `COOKIE_SECURE` по умолчанию `true`;
-- development env явно может переопределить `COOKIE_SECURE=false`;
-- TOTP encryption key валидируется как Fernet key.
+- чувствительные значения описаны через `SecretStr`;
+- deploy validators запрещают опасные production defaults;
+- wildcard CORS запрещен в deployed env;
+- asymmetric JWT обязателен вне development;
+- PEM-like public keys проверяются;
+- cookie security defaults завязаны на environment;
+- локальные env-файлы генерируются через `infra/scripts/bootstrap.sh`.
 
-Почему `COOKIE_SECURE=true` по умолчанию:
+Bootstrap генерирует сильные локальные значения для:
 
-Небезопасные дефолты опасны. Даже если production validator запрещает insecure cookies, staging часто использует реальные или semi-real данные. Поэтому безопаснее сделать secure default, а development пусть явно ослабляет настройку.
+- `services/auth-service/.env`;
+- `services/user-service/.env`;
+- `services/api-gateway/.env`;
+- `infra/compose/.env.compose`.
+
+Это лучше, чем хранить слабые дефолты в репозитории и надеяться, что их кто-то потом заменит.
 
 ## Глава 10. Cookies и CSRF
 
-Auth cookies создаются через централизованные helpers.
+Browser auth в проекте построен на трех основных cookie и одной временной login-challenge cookie:
 
-Для cookies задаются:
+- access token cookie;
+- refresh token cookie;
+- CSRF cookie.
+- temporary login challenge cookie.
 
-- `httponly`;
-- `secure`;
-- `samesite`;
-- `domain`;
-- `path`;
-- expiration.
+Для access/refresh cookies задаются:
 
-CSRF token cookie сделан не `httponly`, потому что frontend должен иметь возможность прочитать token и отправить его в header.
+- `HttpOnly`;
+- `Secure`;
+- `SameSite`;
+- `Path=/`;
+- controlled max-age.
 
-Security смысл:
+CSRF cookie намеренно не `HttpOnly`, потому что фронт должен прочитать его и отправить значение в `X-CSRF-Token`.
 
-- access/refresh cookies защищены от прямого чтения JS через `httponly`;
-- `secure` требует HTTPS;
-- `samesite` снижает риск CSRF;
-- отдельный CSRF token помогает защитить state-changing requests.
+Временная login-challenge cookie тоже `HttpOnly`, живет короткое время и нужна только для безопасной связки шагов `/login` и `/login/2fa` в browser flow.
+
+CSRF-проверка срабатывает не для любого POST подряд, а именно для state-changing запросов, где gateway использует cookie auth. Это важный баланс между безопасностью и предсказуемым поведением API.
+
+Отдельно auth-service и gateway помечают auth-sensitive ответы как `Cache-Control: no-store`, чтобы логин, refresh, revoke, setup 2FA и backup codes не кэшировались браузером или промежуточным слоем.
 
 ## Глава 11. Middleware и security headers
 
-В сервисах есть middleware для request context и security headers.
+Во всех сервисах есть:
 
-Request context middleware:
+- request context middleware;
+- security headers middleware.
 
-1. Берет `X-Request-ID` из запроса или генерирует новый.
-2. Кладет request id в request state.
-3. Измеряет время обработки.
-4. Добавляет `X-Request-ID` и `X-Process-Time-Ms` в response.
+В `auth-service` и `api-gateway` дополнительно есть middleware, который навешивает `no-store` на auth-sensitive endpoints.
 
-Security headers middleware выставляет:
+Что делают middleware:
+
+1. генерируют или принимают `X-Request-ID`;
+2. кладут `request_id` в state;
+3. измеряют `X-Process-Time-Ms`;
+4. ставят security headers;
+5. для чувствительных auth-ответов отключают кэширование.
+
+Основные headers:
 
 - `X-Content-Type-Options: nosniff`;
 - `X-Frame-Options: DENY`;
-- `Referrer-Policy`;
+- `Referrer-Policy: same-origin`;
 - `Permissions-Policy`;
 - `Content-Security-Policy`.
 
-CSP разделен по типам endpoints. Для API политика строгая. Для docs endpoints политика мягче, потому что Swagger/ReDoc требуют scripts/styles.
+Для API и UI CSP отличается: у API политика максимально строгая, у UI достаточно мягкая, чтобы браузерная консоль работала предсказуемо.
 
 ## Глава 12. Docker
 
-Dockerfile'ы переведены на multi-stage build.
+Все runtime images собраны через multi-stage Dockerfiles.
 
-Раньше проблема была такая:
+Это дает такие преимущества:
 
-1. Использовался один runtime stage.
-2. В runtime попадали `build-essential`, compiler toolchain и `curl`.
-3. Образ был тяжелее.
-4. Attack surface была больше.
-5. `curl` мог быть инструментом post-exploitation.
+- build dependencies не попадают в финальный слой;
+- runtime меньше;
+- attack surface меньше;
+- контейнеры стартуют от non-root user;
+- healthcheck не требует `curl`.
 
-Теперь схема такая:
-
-1. `builder` stage ставит build tools.
-2. В builder устанавливаются Python dependencies.
-3. Runtime stage начинается с чистого `python:3.12-slim`.
-4. В runtime копируется только установленный Python package set и service code.
-5. Runtime запускается от non-root user.
-6. Healthcheck использует стандартный Python `urllib.request`, а не `curl`.
-
-Также добавлен `.dockerignore`, чтобы в Docker context не попадали:
-
-- `.git`;
-- `.venv`;
-- `.codex`;
-- caches;
-- `.env` файлы;
-- `__pycache__`.
-
-Это ускоряет сборку, уменьшает риск случайной утечки secrets и предотвращает раздутый build context.
+В runtime-образах не нужно держать лишние инструменты. Чем меньше внутри контейнера утилит и build chain, тем лучше для базового hardening.
 
 ## Глава 13. Docker Compose
 
-В проекте есть dev и prod compose-файлы.
+В проекте есть два compose-файла:
 
-Dev compose поднимает:
+- `infra/compose/docker-compose.dev.yml`;
+- `infra/compose/docker-compose.prod.yml`.
 
-- Postgres для auth-service;
-- Postgres для user-service;
-- Redis;
-- auth-service;
-- user-service;
-- api-gateway.
+### Dev stack
 
-Prod compose дополнительно усиливает runtime:
+Dev compose:
+
+- публикует сервисы на `127.0.0.1`;
+- поднимает Postgres для auth и user;
+- поднимает Redis с паролем;
+- стартует `auth-service`, `user-service`, `api-gateway`.
+
+После `make up` нужно выполнить:
+
+```bash
+make migrate-auth
+make migrate-user
+```
+
+Без миграций сервисы на пустых БД не смогут нормально стартовать.
+
+### Prod stack
+
+Prod compose добавляет runtime hardening:
 
 - `read_only: true`;
 - `tmpfs: /tmp`;
 - `cap_drop: ALL`;
 - `no-new-privileges:true`;
-- internal backend network.
-
-Healthcheck'и теперь тоже не используют `curl`. Они проверяют `/v1/health/live` через Python.
-
-Это важно, потому что если убрать `curl` из runtime-образа, но оставить compose healthcheck на `curl`, контейнер будет падать в unhealthy state.
+- internal backend network;
+- отдельную edge network для gateway.
 
 ## Глава 14. CI/CD
 
-GitHub Actions разделены на несколько workflow:
+В репозитории сейчас три workflow:
 
 - `ci.yml`;
 - `security.yml`;
@@ -397,103 +359,74 @@ GitHub Actions разделены на несколько workflow:
 
 ### CI
 
-CI делает:
+`ci.yml` делает:
 
-1. Checkout.
-2. Setup Python.
-3. Install dependencies.
-4. Compile check.
-5. Tests for auth-service.
-6. Tests for user-service.
-7. Tests for api-gateway.
-8. Tests for notification-service.
+1. установку зависимостей;
+2. compile check через `python -m compileall`;
+3. тесты всех сервисов;
+4. e2e stack test через `infra/scripts/run_e2e_stack.sh`.
 
-### Security workflow
+### Security
 
-Security workflow теперь делает:
+`security.yml` делает:
 
-1. Устанавливает зависимости.
-2. Запрещает `python-jose`.
-3. Запрещает runtime `assert` в service code.
-4. Запускает Bandit.
-5. Запускает security/integration tests.
-6. Собирает Docker images.
-7. Сканирует images через Trivy.
+1. policy guardrail против `python-jose`;
+2. guardrail против runtime `assert` в service code;
+3. Bandit scan;
+4. auth security tests;
+5. gateway security tests;
+6. Trivy scan Docker images.
 
-Это важный шаг: security теперь не только "написана в коде", но и закреплена автоматикой.
+### Deploy
 
-### Deploy workflow
-
-Deploy workflow собирает images для:
-
-- auth-service;
-- user-service;
-- api-gateway;
-- notification-service.
+`deploy.yml` не деплоит напрямую в cluster. Сейчас он собирает service images при `workflow_dispatch` и на тегах `v*`. Это аккуратный build workflow, не притворяющийся готовым production CD.
 
 ## Глава 15. Dependabot и supply chain
 
-Добавлен `.github/dependabot.yml`.
+`/.github/dependabot.yml` следит за:
 
-Dependabot отслеживает:
-
-- pip dependencies в `auth-service`;
-- pip dependencies в `user-service`;
-- pip dependencies в `api-gateway`;
-- pip dependencies в `notification-service`;
-- pip dependencies в `shared/python`;
+- pip dependencies сервисов;
+- `shared/python`;
 - GitHub Actions;
 - Docker dependencies.
 
-Это важно, потому что locked dependencies безопасны только до момента появления CVE. Если никто не следит за обновлениями, pinned версии превращаются в долг.
-
-Dependabot помогает не забывать о security updates.
+Pinned dependencies без автоматического пересмотра быстро превращаются в техдолг. Dependabot не решает supply-chain security сам по себе, но он гарантирует, что обновления и CVE-fixes не забудутся просто потому, что о них никто не вспомнил.
 
 ## Глава 16. Shared Python package
 
-`shared/python` содержит общие контракты и утилиты.
+`shared/python` - это не просто "папка с общим кодом", а заготовка под versioned internal package.
 
-Раньше архитектурный риск был в том, что shared-код можно использовать через `PYTHONPATH`. Для локальной разработки это удобно, но для production rolling deploys это риск.
+Текущий принцип:
 
-Проблема:
+- shared code существует отдельно;
+- сервисы могут использовать его локально;
+- долгосрочно он должен публиковаться как внутренний versioned artifact.
 
-1. Один сервис может быть задеплоен со старой версией shared-контракта.
-2. Другой сервис может ожидать новую версию.
-3. Во время rolling update контракт может временно разъехаться.
-
-Что сделано сейчас:
-
-- добавлен `__version__`;
-- добавлен README;
-- зафиксировано правило: production должен ставить `shared-python` как versioned internal artifact.
-
-Следующий шаг в будущем:
-
-- настроить build/release pipeline для shared package;
-- публиковать `shared-python==x.y.z` во внутренний package registry;
-- сервисы должны зависеть от конкретной версии.
+Идея здесь простая: контракты между сервисами должны иметь explicit version boundary. Иначе rolling deploy легко приводит к рассинхрону между producer и consumer.
 
 ## Глава 17. Observability
 
-В сервисах есть директории `observability/`.
+В проекте уже заложены структурные места для observability, но это пока не полноценный OTel stack.
 
-Сейчас это заготовка, а не полноценный distributed tracing. Но сама структура уже показывает, что проект готов к расширению.
+Что уже есть:
 
-Что можно добавить дальше:
+- request id;
+- process time metrics на уровне response header;
+- audit events;
+- структурированное логирование в сервисах.
 
-- OpenTelemetry instrumentation для FastAPI;
+Что еще можно добавить:
+
+- OpenTelemetry instrumentation;
 - trace propagation через gateway;
-- spans для DB/Redis/httpx;
 - Prometheus metrics;
-- structured logs with request id;
 - dashboards;
-- alerts.
-
-Это следующий уровень зрелости. Без tracing в production трудно разбирать latency и межсервисные проблемы.
+- alerts;
+- audit aggregation.
 
 ## Глава 18. Локальный запуск
 
-Базовый путь локального запуска:
+Актуальный локальный путь такой:
 
 1. Установить зависимости:
 
@@ -501,7 +434,7 @@ Dependabot помогает не забывать о security updates.
 make deps
 ```
 
-2. Сгенерировать env-файлы:
+2. Сгенерировать локальные env-файлы:
 
 ```bash
 infra/scripts/bootstrap.sh
@@ -520,299 +453,181 @@ make migrate-auth
 make migrate-user
 ```
 
-5. Проверить health:
+5. Открыть UI:
 
 ```bash
-curl http://localhost:8000/v1/health/live
-curl http://localhost:8001/v1/health/live
-curl http://localhost:8002/v1/health/live
+http://localhost:8000/ui
 ```
 
-6. Запустить тесты:
+6. Проверить health:
 
 ```bash
-make test
-```
-
-Для notification-service сейчас есть локальная команда:
-
-```bash
-make run-notification
+curl http://localhost:8000/v1/health/ready
+curl http://localhost:8001/v1/health/ready
+curl http://localhost:8002/v1/health/ready
 ```
 
 ## Глава 19. Тестирование
 
-Тесты разделены по сервисам.
+Тесты разбиты по уровням.
 
-Auth-service покрывает:
+### Auth-service
 
-- JWT behavior;
-- password service;
-- refresh token rotation;
-- 2FA flow;
+Проверяются:
+
+- JWT service;
 - password reset;
-- brute-force privacy;
-- validation sanitization;
+- refresh rotation/reuse и retry-safe duplicate refresh;
+- 2FA service;
+- challenge flow, включая browser-bound nonce;
 - audit sanitization;
-- config security.
+- validation sanitization;
+- brute-force privacy;
+- session info response;
+- no-store headers.
 
-User-service покрывает:
+### User-service
+
+Проверяются:
 
 - access token validation;
 - RBAC service;
-- permission guard;
+- permission guards;
 - validation sanitization;
 - security helpers.
 
-API gateway покрывает:
+### API gateway
 
-- routing service;
+Проверяются:
+
+- routing;
+- public/protected endpoint policy;
+- cookie auth helpers, включая login challenge cookie;
 - header sanitization;
-- access token verification;
-- public/protected endpoint logic;
-- client IP handling.
+- CSRF behavior;
+- client IP handling;
+- no-store headers.
 
-Notification-service покрывает:
+### Notification-service
 
-- health handlers;
-- readiness;
+Проверяются:
+
+- live/ready handlers;
 - security headers middleware.
 
-Есть также e2e auth security flow через gateway.
+### E2E
+
+Есть минимум два полезных сценария:
+
+- `make test-e2e-auth`;
+- `make test-e2e-stack`.
+
+Первый проверяет auth flow через gateway, второй гоняет полный docker stack.
 
 ## Глава 20. Production checklist
 
-Перед production нужно проверить:
+Перед production стоит проверить:
 
 1. `SERVICE_ENV=production`.
-2. `COOKIE_SECURE=true`.
-3. Explicit `CORS_ALLOWED_ORIGINS`.
-4. Нет wildcard CORS.
-5. JWT algorithm - asymmetric, например `RS256`.
-6. Private/public keys в PEM format.
-7. Peppers длинные и случайные.
+2. JWT algorithm - asymmetric.
+3. Public/private keys корректны и в правильном формате.
+4. Explicit `CORS_ALLOWED_ORIGINS` заданы.
+5. Gateway - единственная внешняя точка входа.
+6. `COOKIE_SECURE=true`.
+7. TLS termination настроен.
 8. Redis защищен паролем.
-9. DB passwords не дефолтные.
-10. TLS termination настроен.
-11. Gateway стоит перед сервисами.
-12. Internal network закрыта от внешнего мира.
-13. CI проходит.
-14. Trivy не находит HIGH/CRITICAL issues.
-15. Bandit не находит medium/high issues.
-16. Dependabot включен.
-17. Secrets не попадают в image context.
-18. Docker runtime работает non-root.
-19. Capabilities сброшены.
-20. Read-only filesystem включен там, где возможно.
+9. DB credentials не дефолтные.
+10. Prod compose hardening включен.
+11. Миграции применены.
+12. CI и security workflows зелёные.
+13. Trivy не дает HIGH/CRITICAL.
+14. Bandit не дает проблем в допустимом диапазоне.
+15. Browser clients ходят только в gateway same-origin.
+16. Прямой доступ к auth/user-service извне закрыт.
 
 ## Глава 21. Что еще можно улучшить
 
-Проект уже закрыл важные security и architecture issues, но следующие шаги остаются:
+Следующий уровень зрелости для платформы:
 
-1. Полноценный OpenTelemetry tracing.
-2. Centralized gateway-level permission policy.
-3. Centralized rate limiting на gateway.
-4. Internal package release pipeline для `shared-python`.
-5. Настоящая notification delivery architecture.
-6. Event-driven коммуникация через брокер.
-7. More integration tests with real Postgres/Redis.
-8. SBOM generation.
-9. Image signing.
-10. Deployment manifests для Kubernetes или Nomad.
+1. gateway-level centralized authorization policy;
+2. полноценный OpenTelemetry stack;
+3. event-driven integration между сервисами;
+4. versioned release pipeline для `shared/python`;
+5. real notification delivery architecture;
+6. SBOM generation и image signing;
+7. более широкие integration tests c real infra;
+8. deployment manifests для Kubernetes или Nomad.
 
-Это уже не багфиксы, а следующий этап развития платформы.
+## Глава 22. Краткая история актуальных исправлений
 
-## Глава 22. Краткая история исправлений
+В текущей итерации проекта особенно важны такие изменения:
 
-Ниже коротко перечислены проблемы, которые были найдены, и как они были решены.
+### 22.1. Browser auth перенесен на cookie contract
 
-### Проблема 1. Runtime `assert` в production-коде
+- gateway кладет access/refresh в HttpOnly cookies;
+- браузер больше не должен хранить bearer tokens;
+- `/refresh` и `/revoke` умеют работать от browser session;
+- login 2FA handshake использует временную HttpOnly challenge cookie;
+- auth-sensitive browser ответы помечаются как `no-store`.
 
-`assert` может быть удален Python при запуске с `-O`. Поэтому использовать его для runtime checks опасно.
+### 22.2. Persistent account lock
 
-Решение:
+- после трех неверных паролей аккаунт блокируется;
+- повторный логин lock не снимает;
+- password reset очищает lock и session state.
 
-- `assert tokens is not None` заменен на явный `RuntimeError`.
-- `assert user is not None` заменен на явный `RuntimeError`.
-- В CI добавлен guardrail, который запрещает runtime `assert` в service code.
+### 22.3. Session introspection для UI
 
-### Проблема 2. Runtime Docker images содержали build tools и curl
+- `GET /v1/sessions/me` отдает безопасный session snapshot;
+- UI получает `two_factor_enabled` и не показывает конфликтующие действия.
 
-В финальный образ попадали compiler toolchain и `curl`.
+### 22.4. Browser UI стал осторожнее
 
-Решение:
-
-- Dockerfile'ы переведены на multi-stage build.
-- Build tools остались только в builder stage.
-- Runtime stage стал легче и безопаснее.
-- `curl` удален из runtime.
-- Healthcheck переписан на Python `urllib.request`.
-
-### Проблема 3. Не было Dependabot
-
-Pinned dependencies были, но автоматического контроля security updates не было.
-
-Решение:
-
-- Добавлен `.github/dependabot.yml`.
-- Dependabot следит за pip, Docker и GitHub Actions.
-
-### Проблема 4. `lru_cache` на repository factories
-
-Repository instances могли становиться process-wide singleton objects. Если в будущем в repository появится state, это приведет к трудным багам.
-
-Решение:
-
-- `lru_cache` снят с repository/service factories в auth-service и user-service.
-- Stateless сервисы теперь создаются через FastAPI dependency flow без вечного process-level cache.
-
-### Проблема 5. `COOKIE_SECURE=false` был небезопасным дефолтом
-
-Даже если production валидировался, staging мог случайно работать с insecure cookies.
-
-Решение:
-
-- Default изменен на `true`.
-- Development env явно задает `COOKIE_SECURE=false`.
-- Staging/production требуют `COOKIE_SECURE=true`.
-- Добавлены regression tests.
-
-### Проблема 6. Security scanning в CI был недостаточным
-
-Был grep guardrail против `python-jose`, но не было полноценного SAST/image scanning.
-
-Решение:
-
-- Добавлен Bandit.
-- Добавлен Trivy image scan.
-- Добавлен no-runtime-assert guardrail.
-
-### Проблема 7. Notification-service был пустым scaffold
-
-Файлы существовали, но сервис не был доведен до тестируемого состояния.
-
-Решение:
-
-- Добавлен минимальный health-only сервис.
-- Добавлены config, schemas, middleware, tests, Dockerfile, requirements.lock.
-- README явно помечает сервис как WIP.
-
-### Проблема 8. Shared code не имел versioning boundary
-
-Shared package был полезен, но production-подход через mutable `PYTHONPATH` рискован.
-
-Решение:
-
-- Добавлен `__version__`.
-- Добавлен README с правилом versioned internal package.
-- Следующий шаг - release pipeline для `shared-python`.
+- `Disable 2FA` в UI теперь идет через password + TOTP;
+- поле `Backup code` убрано из браузерной формы;
+- статусная зона показывает только безопасные summary, без сырого JSON payload.
 
 ## Глава 23. Итог
 
-Проект теперь выглядит как крепкая security-first backend platform foundation.
+На текущем этапе `backend-platform` - это уже не просто учебный набор FastAPI-сервисов. Это аккуратно собранная security-first платформа с:
 
-Самые критичные ошибки исправлены:
+- browser cookie auth через gateway;
+- browser-bound 2FA challenge вместо brittle IP-only browser binding;
+- persistent account lock;
+- challenge-based 2FA;
+- refresh rotation, retry-safe duplicate handling и revoke;
+- RBAC и user context;
+- hardened Docker/runtime policy;
+- CI/security guardrails;
+- локальным dev stack, который реально можно поднять и прогнать end-to-end.
 
-- runtime `assert` убраны;
-- Docker runtime hardened;
-- security scanning добавлен;
-- dependency updates автоматизированы;
-- cookie security усилена;
-- repository cache risk снят;
-- notification-service перестал быть пустым каталогом;
-- shared package получил versioning direction.
+Это хорошая база как для дальнейшего hardening, так и для роста функциональности.
 
-Оставшиеся задачи - это уже не срочные уязвимости, а развитие архитектуры: tracing, centralized gateway policy, shared package release pipeline, полноценный notification delivery и более глубокая production automation.
+## Глава 24. Последний цикл hardening и UX-выравнивания
 
-## Глава 24. Второй цикл hardening после глубокого аудита
+Последний цикл изменений был уже не про "добавить фичу", а про выровнять поведение платформы до предсказуемого и безопасного состояния.
 
-После следующего аудита проект прошел еще один цикл укрепления. На этом этапе фокус был уже не на очевидных ошибках вроде runtime `assert` или Docker runtime, а на более тонких production-рисках: рассинхрон политики JWT между сервисами, жизнь access token после logout, слабые границы proxy headers, distributed brute-force для password reset и риск случайного коммита локальной книги.
+### 24.1. 2FA UI теперь соответствует реальному состоянию аккаунта
 
-### 24.1. Единая JWT policy
+UI больше не показывает одновременно `Enable 2FA` и `Disable 2FA`. Сначала через `sessions/me` подгружается реальный флаг, и только после этого интерфейс решает, какое действие вообще доступно пользователю.
 
-Проблема была в том, что auth-service выпускал access tokens с `iat` и `nbf`, но api-gateway и user-service не требовали эти claims при валидации. Формально токен с валидной подписью, `exp`, `aud` и `iss` проходил бы gateway/user-service даже без temporal claims.
+### 24.2. Popup setup flow стал читаемым
 
-Решение:
+Popup для подключения Google Authenticator теперь разделен на нормальные шаги:
 
-- api-gateway теперь требует `iat` и `nbf` при decode access token;
-- user-service теперь требует `iat` и `nbf` при decode access token;
-- добавлены regression tests на токен без temporal claims;
-- auth-service дополнительно требует `sid` для access token и `sid/family_id` для refresh token.
+- отдельный блок для QR;
+- отдельный блок для кода;
+- отдельный блок для backup codes.
 
-### 24.2. Access session revocation
+Это уменьшает вероятность пользовательской ошибки и делает flow заметно чище.
 
-Раньше logout и password reset отзывали refresh token family и sessions в auth database, но уже выданный access token мог жить до `exp`. Это стандартный компромисс JWT, но для security-first проекта лучше иметь механизм быстрой инвалидции хотя бы для текущей session.
+### 24.3. Статусная панель больше не светит лишнее
 
-Решение:
+Главный UI не выводит raw JSON с потенциально чувствительными полями. Пользователь видит короткий безопасный summary:
 
-- добавлен Redis key `access_session_revoked:{sid}`;
-- auth-service ставит этот marker при logout/revoke refresh token;
-- auth-service ставит markers для активных sessions при password reset;
-- refresh token reuse detection теперь передает `session_id`, чтобы можно было отозвать access session;
-- api-gateway, user-service и auth-service проверяют Redis marker перед принятием access token.
+- сессия восстановлена;
+- 2FA требуется;
+- операция завершена;
+- ошибка с пользовательским message.
 
-Это не превращает JWT в полностью stateful token, но закрывает самый опасный сценарий: пользователь сделал logout или reset password, а старый access token продолжает спокойно работать на protected endpoints.
-
-### 24.3. Production config validators в gateway и user-service
-
-Auth-service уже запрещал опасные production-конфигурации, но gateway и user-service были мягче.
-
-Решение:
-
-- staging/production теперь требуют asymmetric JWT algorithm;
-- wildcard CORS запрещен;
-- пустой CORS в deployed env запрещен;
-- public key в deployed env должен быть PEM-like;
-- добавлены tests для production guardrails.
-
-### 24.4. Password reset brute-force стал сильнее
-
-Код password reset остается шестизначным, но brute-force защита теперь работает не только на пару `email:ip`, а также на account-level scope.
-
-Решение:
-
-- добавлен scope `password_reset_account`;
-- неудачная попытка reset теперь увеличивает счетчик и по `email:ip`, и по `email`;
-- успешный reset очищает оба scope;
-- это уменьшает риск distributed brute-force с разных IP.
-
-Следующий идеальный шаг - заменить шестизначный код на high-entropy reset token или добавить отдельную user-level attempt таблицу с audit trail.
-
-### 24.5. Gateway header hardening
-
-Gateway уже очищал request headers от hop-by-hop и forged forwarded headers. Но response headers от upstream были слишком свободными.
-
-Решение:
-
-- gateway теперь удаляет `Set-Cookie`, `Server`, `X-Powered-By` из upstream response;
-- добавлен regression test;
-- это снижает риск, что скомпрометированный downstream посадит cookie на gateway domain.
-
-### 24.6. Git hygiene для книги и секретов
-
-Книга проекта должна оставаться локальным рабочим документом и никогда не уходить в Git.
-
-Решение:
-
-- добавлен tracked `.gitignore`;
-- `docs/project-book.md` добавлен в ignore rules;
-- `.env`, PEM/secrets, caches и runtime artifacts тоже защищены ignore rules;
-- новый code commit собирается от `origin/main`, чтобы не протащить старый локальный docs-коммит.
-
-### 24.7. Code quality hardening
-
-Также исправлены несколько менее заметных, но важных вещей:
-
-- убраны private imports `httpx._types`;
-- mutable default `{}` в shared audit contract заменен на `Field(default_factory=dict)`;
-- `X-Request-ID` теперь нормализуется и ограничивается по длине;
-- `/tokens/revoke` получил rate limiting.
-
-### 24.8. Что было проблемой и как решено коротко
-
-- Access token жил после logout/reset password - добавлен Redis marker revoked sessions и проверки во всех сервисах.
-- JWT validation была разной в сервисах - выровнены required claims и добавлены tests.
-- Gateway/user-service могли стартовать с плохим production config - добавлены deployed validators.
-- Password reset был слабее против distributed brute-force - добавлен account-level brute-force scope.
-- Gateway пропускал опасные response headers - добавлена фильтрация `Set-Cookie`, `Server`, `X-Powered-By`.
-- Локальная книга могла случайно попасть в Git - добавлен `.gitignore`, книга остается ignored local file.
+Backup codes остаются только в dedicated setup popup, где они действительно нужны один раз после включения 2FA.
