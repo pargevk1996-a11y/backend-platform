@@ -344,8 +344,8 @@ function scheduleSetupWindowFit(child) {
 }
 
 function openSetupWindow() {
-  const popupWidth = 430;
-  const popupHeight = 540;
+  const popupWidth = 400;
+  const popupHeight = 470;
   const child = window.open(
     "",
     "backendPlatform2faSetup",
@@ -376,7 +376,7 @@ function openSetupWindow() {
   body.style.height = "100%";
   body.style.margin = "0";
   body.style.overflow = "hidden";
-  body.style.background = "#0f1115";
+  body.style.background = "#050505";
   body.style.color = "#f3f5f7";
   body.style.fontFamily = "system-ui,-apple-system,Segoe UI,sans-serif";
 
@@ -399,8 +399,8 @@ function openSetupWindow() {
   stack.style.display = "grid";
   stack.style.justifyItems = "center";
   stack.style.alignContent = "center";
-  stack.style.gap = "14px";
-  stack.style.width = "240px";
+  stack.style.gap = "12px";
+  stack.style.width = "220px";
   stack.style.maxWidth = "100%";
 
   const qrMount = doc.createElement("div");
@@ -413,15 +413,13 @@ function openSetupWindow() {
   const qrFrame = doc.createElement("div");
   qrFrame.id = "setupQrFrame";
   qrFrame.style.boxSizing = "border-box";
-  qrFrame.style.width = "240px";
-  qrFrame.style.height = "240px";
-  qrFrame.style.borderRadius = "10px";
-  qrFrame.style.background = "#ffffff";
-  qrFrame.style.padding = "10px";
+  qrFrame.style.width = "220px";
+  qrFrame.style.height = "220px";
+  qrFrame.style.background = "transparent";
   qrFrame.style.display = "grid";
   qrFrame.style.placeItems = "center";
   qrFrame.style.overflow = "hidden";
-  qrFrame.style.boxShadow = "0 0 0 1px rgba(255,255,255,0.08)";
+  qrFrame.style.lineHeight = "0";
 
   qrMount.append(qrFrame);
 
@@ -473,10 +471,10 @@ function fitSetupWindow(child) {
   if (!stage || !stack || !inputSection || !qrFrame) return;
 
   const stageRect = stage.getBoundingClientRect();
-  const stackGap = 14;
+  const stackGap = 12;
   const availableWidth = stageRect.width;
   const availableHeight = stageRect.height - inputSection.offsetHeight - stackGap;
-  const qrSize = Math.max(180, Math.min(320, availableWidth, availableHeight));
+  const qrSize = Math.max(150, Math.min(220, availableWidth, availableHeight));
   stack.style.width = `${Math.floor(qrSize)}px`;
   qrFrame.style.width = `${Math.floor(qrSize)}px`;
   qrFrame.style.height = `${Math.floor(qrSize)}px`;
@@ -489,7 +487,7 @@ function updateSetupWindowQr(child, qrBase64) {
     <img
       alt="Google Authenticator QR"
       src="data:image/png;base64,${qrBase64}"
-      style="display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain"
+      style="display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;image-rendering:pixelated"
     />
   `;
   const input = child.document.getElementById("popupTotpCode");
