@@ -24,7 +24,7 @@ def _configure_test_env() -> None:
     os.environ["JWT_ALGORITHM"] = "HS256"
     os.environ["JWT_ISSUER"] = "backend-platform"
     os.environ["JWT_AUDIENCE"] = "backend-clients"
-    os.environ["JWT_PUBLIC_KEY"] = "gateway-test-key"
+    os.environ["JWT_PUBLIC_KEY"] = "gateway-test-key-minimum-32-bytes"
     os.environ["PRIVACY_KEY_PEPPER"] = "gateway-test-privacy-pepper-very-long"
 
     from app.core.config import get_settings
