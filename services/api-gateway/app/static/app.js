@@ -325,8 +325,32 @@ function ensureTotp(value) {
   return code;
 }
 
+function defaultSetupWindowPlaceholder() {
+  return "123456";
+}
+
+function setSetupWindowMessage(child, message, tone = "muted") {
+  if (!child || child.closed) return;
+  const input = child.document.getElementById("popupTotpCode");
+  if (!input) return;
+  input.placeholder = message || defaultSetupWindowPlaceholder();
+  input.style.borderColor =
+    tone === "error" ? "#ff6b6b" : tone === "success" ? "#6ee7a8" : "#2d3440";
+}
+
+function scheduleSetupWindowFit(child) {
+  setTimeout(() => fitSetupWindow(child), 0);
+  setTimeout(() => fitSetupWindow(child), 100);
+}
+
 function openSetupWindow() {
-  const child = window.open("", "backendPlatform2faSetup", "popup,width=430,height=520");
+  const popupWidth = 430;
+  const popupHeight = 540;
+  const child = window.open(
+    "",
+    "backendPlatform2faSetup",
+    `popup,width=${popupWidth},height=${popupHeight}`,
+  );
   if (!child) {
     setStatus("Popup blocked. Allow popups and try again.", true);
     return null;
@@ -339,163 +363,171 @@ function openSetupWindow() {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Enable 2FA</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #111111;
-        --panel: #171717;
-        --text: #f1f1f1;
-        --muted: #b8b8b8;
-        --border: #303030;
-        --accent: #6ee7a8;
-        --accent-2: #f7d774;
-        --danger: #ff6b6b;
-      }
-      * { box-sizing: border-box; }
-      html, body { height: 100%; overflow: hidden; }
-      body {
-        margin: 0;
-        font-family: system-ui, -apple-system, Segoe UI, sans-serif;
-        background: var(--bg);
-        color: var(--text);
-      }
-      main {
-        min-height: 100%;
-        padding: 16px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 12px;
-      }
-      .status {
-        min-height: 18px;
-        font-size: 13px;
-        color: var(--muted);
-        text-align: center;
-      }
-      .qr-shell {
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: var(--panel);
-        padding: 12px;
-        display: grid;
-        place-items: center;
-        min-height: 310px;
-      }
-      .qr-frame {
-        width: min(280px, 100%);
-        aspect-ratio: 1;
-        border-radius: 8px;
-        background: white;
-        padding: 12px;
-        display: grid;
-        place-items: center;
-      }
-      .qr-frame img {
-        display: block;
-        width: 100%;
-        height: auto;
-      }
-      .qr-placeholder {
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .action-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 10px;
-        align-items: center;
-      }
-      input, button {
-        width: 100%;
-        box-sizing: border-box;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        padding: 11px 12px;
-        font: inherit;
-      }
-      input {
-        background: #121212;
-        color: var(--text);
-        min-width: 0;
-      }
-      button {
-        background: linear-gradient(90deg, var(--accent), var(--accent-2));
-        color: #07120b;
-        border: 0;
-        font-weight: 700;
-        white-space: nowrap;
-        width: auto;
-        min-width: 138px;
-      }
-      button:disabled,
-      input:disabled {
-        opacity: .55;
-      }
-      .danger { color: var(--danger); }
-      .success { color: var(--accent); }
-      @media (max-width: 420px) {
-        html, body {
-          overflow: auto;
-        }
-        .action-row {
-          grid-template-columns: 1fr;
-        }
-        button {
-          width: 100%;
-        }
-      }
-    </style>
   </head>
-  <body>
-    <main>
-      <div id="qrMount" class="qr-shell">
-        <div class="qr-placeholder">QR code will appear here.</div>
-      </div>
-      <div class="action-row">
-        <input id="popupTotpCode" autocomplete="off" inputmode="numeric" placeholder="123456" />
-        <button id="popupEnableBtn">Enable 2FA</button>
-      </div>
-      <div id="setupStatus" class="status">Creating QR...</div>
-    </main>
-  </body>
+  <body style="margin:0"></body>
 </html>`);
   child.document.close();
+
+  const doc = child.document;
+  const root = doc.documentElement;
+  const body = doc.body;
+  root.style.height = "100%";
+  root.style.overflow = "hidden";
+  body.style.height = "100%";
+  body.style.margin = "0";
+  body.style.overflow = "hidden";
+  body.style.background = "#0f1115";
+  body.style.color = "#f3f5f7";
+  body.style.fontFamily = "system-ui,-apple-system,Segoe UI,sans-serif";
+
+  const main = doc.createElement("main");
+  main.id = "setupRoot";
+  main.style.height = "100%";
+  main.style.padding = "18px";
+  main.style.display = "grid";
+  main.style.overflow = "hidden";
+
+  const stage = doc.createElement("div");
+  stage.id = "setupStage";
+  stage.style.minHeight = "0";
+  stage.style.display = "grid";
+  stage.style.placeItems = "center";
+  stage.style.overflow = "hidden";
+
+  const stack = doc.createElement("div");
+  stack.id = "setupStack";
+  stack.style.display = "grid";
+  stack.style.justifyItems = "center";
+  stack.style.alignContent = "center";
+  stack.style.gap = "14px";
+  stack.style.width = "240px";
+  stack.style.maxWidth = "100%";
+
+  const qrMount = doc.createElement("div");
+  qrMount.id = "qrMount";
+  qrMount.style.width = "100%";
+  qrMount.style.display = "grid";
+  qrMount.style.placeItems = "center";
+  qrMount.style.overflow = "hidden";
+
+  const qrFrame = doc.createElement("div");
+  qrFrame.id = "setupQrFrame";
+  qrFrame.style.boxSizing = "border-box";
+  qrFrame.style.width = "240px";
+  qrFrame.style.height = "240px";
+  qrFrame.style.borderRadius = "10px";
+  qrFrame.style.background = "#ffffff";
+  qrFrame.style.padding = "10px";
+  qrFrame.style.display = "grid";
+  qrFrame.style.placeItems = "center";
+  qrFrame.style.overflow = "hidden";
+  qrFrame.style.boxShadow = "0 0 0 1px rgba(255,255,255,0.08)";
+
+  qrMount.append(qrFrame);
+
+  const inputWrap = doc.createElement("div");
+  inputWrap.id = "setupCodeSection";
+  inputWrap.style.width = "100%";
+
+  const input = doc.createElement("input");
+  input.id = "popupTotpCode";
+  input.autocomplete = "off";
+  input.inputMode = "numeric";
+  input.maxLength = 8;
+  input.setAttribute("aria-label", "Authenticator code");
+  input.placeholder = "123456";
+  input.style.width = "100%";
+  input.style.minWidth = "0";
+  input.style.height = "44px";
+  input.style.padding = "10px 12px";
+  input.style.border = "1px solid #2d3440";
+  input.style.borderRadius = "10px";
+  input.style.background = "#12161d";
+  input.style.color = "#f3f5f7";
+  input.style.font = "inherit";
+  input.style.outline = "none";
+  input.placeholder = defaultSetupWindowPlaceholder();
+
+  inputWrap.append(input);
+  stack.append(qrMount, inputWrap);
+  stage.append(stack);
+  main.append(stage);
+  body.replaceChildren(main);
+
+  try {
+    child.resizeTo(popupWidth, popupHeight);
+  } catch (_) {}
+  child.addEventListener("resize", () => scheduleSetupWindowFit(child));
+  scheduleSetupWindowFit(child);
   state.setupWindow = child;
   return child;
 }
 
+function fitSetupWindow(child) {
+  if (!child || child.closed) return;
+  const doc = child.document;
+  const stage = doc.getElementById("setupStage");
+  const stack = doc.getElementById("setupStack");
+  const inputSection = doc.getElementById("setupCodeSection");
+  const qrFrame = doc.getElementById("setupQrFrame");
+  if (!stage || !stack || !inputSection || !qrFrame) return;
+
+  const stageRect = stage.getBoundingClientRect();
+  const stackGap = 14;
+  const availableWidth = stageRect.width;
+  const availableHeight = stageRect.height - inputSection.offsetHeight - stackGap;
+  const qrSize = Math.max(180, Math.min(320, availableWidth, availableHeight));
+  stack.style.width = `${Math.floor(qrSize)}px`;
+  qrFrame.style.width = `${Math.floor(qrSize)}px`;
+  qrFrame.style.height = `${Math.floor(qrSize)}px`;
+}
+
 function updateSetupWindowQr(child, qrBase64) {
-  const qrMount = child.document.getElementById("qrMount");
-  const status = child.document.getElementById("setupStatus");
-  qrMount.innerHTML = `
-    <div class="qr-frame">
-      <img alt="Google Authenticator QR" src="data:image/png;base64,${qrBase64}" />
-    </div>
+  const qrFrame = child.document.getElementById("setupQrFrame");
+  if (!qrFrame) return;
+  qrFrame.innerHTML = `
+    <img
+      alt="Google Authenticator QR"
+      src="data:image/png;base64,${qrBase64}"
+      style="display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain"
+    />
   `;
-  status.textContent = "Scan the QR, enter the code, then enable 2FA.";
-  child.document.getElementById("popupTotpCode")?.focus();
+  const input = child.document.getElementById("popupTotpCode");
+  if (input) {
+    input.disabled = false;
+    input.value = "";
+    input.placeholder = defaultSetupWindowPlaceholder();
+    input.style.borderColor = "#2d3440";
+    input.focus();
+  }
+  scheduleSetupWindowFit(child);
 }
 
 function updateSetupWindowResult(value, isError) {
   const child = state.setupWindow;
   if (!child || child.closed) return;
-  const status = child.document.getElementById("setupStatus");
   const input = child.document.getElementById("popupTotpCode");
-  const button = child.document.getElementById("popupEnableBtn");
-  status.textContent = isError
-    ? (typeof value === "string" ? value : value?.message || "2FA setup failed.")
-    : "2FA enabled.";
-  status.classList.toggle("danger", Boolean(isError));
-  status.classList.toggle("success", !isError);
   if (input) {
-    input.disabled = !isError;
-    if (!isError) input.value = "";
+    if (isError) {
+      input.disabled = false;
+      input.value = "";
+      input.placeholder = "Wrong code";
+      input.style.borderColor = "#ff6b6b";
+      input.focus();
+    } else {
+      input.disabled = true;
+      input.value = "";
+      input.placeholder = "Enabled";
+      input.style.borderColor = "#6ee7a8";
+      setTimeout(() => {
+        if (child.closed) return;
+        child.close();
+        if (state.setupWindow === child) state.setupWindow = null;
+      }, 180);
+      return;
+    }
   }
-  if (button) {
-    button.disabled = !isError;
-    button.textContent = isError ? "Enable 2FA" : "Enabled";
-  }
+  scheduleSetupWindowFit(child);
 }
 
 window.completeTwoFactorEnable = async (code) => {
@@ -663,13 +695,22 @@ $("setup2faBtn").addEventListener("click", async () => {
     if (body.qr_png_base64) {
       updateSetupWindowQr(child, body.qr_png_base64);
     }
-    const button = child.document.getElementById("popupEnableBtn");
     const input = child.document.getElementById("popupTotpCode");
-    button.onclick = () => window.completeTwoFactorEnable(input.value);
+    const submitPopupCode = () => {
+      if (input.disabled) return;
+      input.disabled = true;
+      input.placeholder = "Checking...";
+      input.style.borderColor = "#2d3440";
+      window.completeTwoFactorEnable(input.value);
+    };
     input.onkeydown = (event) => {
-      if (event.key !== "Enter" || button.disabled) return;
+      if (event.key !== "Enter" || input.disabled) return;
       event.preventDefault();
-      button.click();
+      submitPopupCode();
+    };
+    input.oninput = () => {
+      input.value = input.value.replace(/\D/g, "").slice(0, 8);
+      setSetupWindowMessage(child, defaultSetupWindowPlaceholder());
     };
     setStatus("QR opened in a new window.", false);
     setResult(body, false);

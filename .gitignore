@@ -2,3 +2,17 @@
 .env
 **/.env
 infra/compose/.env.compose
+
+# Local editor/agent metadata — never commit
+.codex
+.codex/
+.cursor
+.cursor/
+**/.codex
+**/.codex/
+**/.cursor
+**/.cursor/
+**/codex
+**/codex/
+**/cursor
+**/cursor/
