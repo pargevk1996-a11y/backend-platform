@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     def privacy_key_pepper_value(self) -> str:
         return self.privacy_key_pepper.get_secret_value()
 
+    @property
+    def api_docs_enabled(self) -> bool:
+        return self.service_env == "development"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

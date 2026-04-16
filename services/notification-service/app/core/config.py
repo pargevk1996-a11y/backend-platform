@@ -42,6 +42,10 @@ class Settings(BaseSettings):
             raise ValueError("Wildcard CORS origin is not allowed in staging or production")
         return self
 
+    @property
+    def api_docs_enabled(self) -> bool:
+        return self.service_env == "development"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

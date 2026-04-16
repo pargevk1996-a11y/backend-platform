@@ -5,6 +5,9 @@ from app.core.config import Settings
 from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
+PRIVATE_KEY_STUB = "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----"
+PUBLIC_KEY_STUB = "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----"
+
 
 def _set_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://auth:auth@localhost:5432/auth")
@@ -55,3 +58,21 @@ def test_development_requires_delivery_when_smtp_is_partially_configured(
     settings = Settings()
 
     assert settings.smtp_require_delivery_value
+
+
+def test_api_docs_are_disabled_outside_development(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_env(monkeypatch)
+
+    assert Settings().api_docs_enabled
+
+    monkeypatch.setenv("SERVICE_ENV", "production")
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+    monkeypatch.setenv("JWT_ALGORITHM", "RS256")
+    monkeypatch.setenv("JWT_PRIVATE_KEY", PRIVATE_KEY_STUB)
+    monkeypatch.setenv("JWT_PUBLIC_KEY", PUBLIC_KEY_STUB)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "no-reply@example.com")
+
+    assert not Settings().api_docs_enabled

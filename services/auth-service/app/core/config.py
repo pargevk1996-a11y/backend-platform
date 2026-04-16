@@ -242,6 +242,10 @@ class Settings(BaseSettings):
         )
         return self.service_env != "development" or smtp_partially_configured
 
+    @property
+    def api_docs_enabled(self) -> bool:
+        return self.service_env == "development"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

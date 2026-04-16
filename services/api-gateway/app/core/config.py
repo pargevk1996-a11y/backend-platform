@@ -126,6 +126,10 @@ class Settings(BaseSettings):
             return self.auth_cookie_secure
         return self.service_env != "development"
 
+    @property
+    def api_docs_enabled(self) -> bool:
+        return self.service_env == "development"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
