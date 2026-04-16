@@ -18,7 +18,11 @@ from app.core.constants import (
     AUDIT_REGISTER_SUCCESS,
 )
 from app.core.privacy import normalize_optional, stable_hmac_digest
-from app.exceptions.auth import InvalidCredentialsException, UserAlreadyExistsException
+from app.exceptions.auth import (
+    AccountLockedException,
+    InvalidCredentialsException,
+    UserAlreadyExistsException,
+)
 from app.exceptions.token import InvalidTokenException, TokenReuseDetectedException
 from app.exceptions.two_factor import InvalidChallengeException, InvalidTwoFactorCodeException
 from app.integrations.redis.keys import access_session_revoked_key, login_challenge_key
@@ -110,11 +114,24 @@ class AuthService:
 
         await self.brute_force_service.assert_not_locked(scope="login", identifier=identifier)
 
-        user = await self.user_repository.get_by_email(session, normalized_email)
+        user = await self.user_repository.get_by_email_for_update(session, normalized_email)
         if user is not None:
             await self.brute_force_service.assert_not_locked(
                 scope="login_account", identifier=normalized_email
             )
+            if user.locked_at is not None:
+                await self.audit_service.log_event(
+                    session,
+                    event_type=AUDIT_LOGIN_FAILED,
+                    outcome="failure",
+                    actor_user_id=user.id,
+                    target_user_id=user.id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    payload={"email": normalized_email, "reason": "account_locked"},
+                )
+                await session.commit()
+                raise AccountLockedException("Account locked. Reset password to unlock.")
 
         if user is None:
             self.password_service.verify_against_dummy_hash(password)
@@ -123,9 +140,15 @@ class AuthService:
             password_ok = self.password_service.verify_password(password, user.password_hash)
         if not password_ok:
             await self.brute_force_service.record_failure(scope="login", identifier=identifier)
+            locked = False
             if user is not None:
                 await self.brute_force_service.record_failure(
                     scope="login_account", identifier=normalized_email
+                )
+                locked = await self.user_repository.record_failed_login(
+                    user,
+                    lock_threshold=self.settings.login_lock_failed_attempts,
+                    reason="failed_password",
                 )
             await self.audit_service.log_event(
                 session,
@@ -135,9 +158,15 @@ class AuthService:
                 target_user_id=user.id if user else None,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                payload={"email": normalized_email},
+                payload={
+                    "email": normalized_email,
+                    "failed_login_count": user.failed_login_count if user else None,
+                    "locked_until_password_reset": locked,
+                },
             )
             await session.commit()
+            if locked:
+                raise AccountLockedException("Account locked. Reset password to unlock.")
             raise InvalidCredentialsException()
 
         if user is None:
@@ -161,6 +190,7 @@ class AuthService:
         await self.brute_force_service.clear_failures(
             scope="login_account", identifier=normalized_email
         )
+        await self.user_repository.clear_login_failures(user)
 
         if user.two_factor_enabled:
             challenge_id = await self._create_login_challenge(

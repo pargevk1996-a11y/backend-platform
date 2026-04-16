@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     rate_limit_register_per_minute: int = 5
     rate_limit_password_reset_per_minute: int = 5
 
+    login_lock_failed_attempts: int = 3
+
     brute_force_login_max_attempts: int = 5
     brute_force_login_window_seconds: int = 300
     brute_force_login_lock_seconds: int = 900

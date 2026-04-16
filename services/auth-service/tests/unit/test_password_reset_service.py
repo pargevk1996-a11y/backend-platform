@@ -15,6 +15,9 @@ class FakeUser:
     id: UUID
     email: str
     password_hash: str = "old-hash"
+    failed_login_count: int = 0
+    locked_at: object | None = None
+    lock_reason: str | None = None
 
 
 @dataclass
@@ -43,6 +46,11 @@ class FakeUserRepository:
 
     async def update_password(self, user: FakeUser, password_hash: str) -> None:
         user.password_hash = password_hash
+
+    async def clear_login_lock(self, user: FakeUser) -> None:
+        user.failed_login_count = 0
+        user.locked_at = None
+        user.lock_reason = None
 
 
 class FakePasswordService:
@@ -184,6 +192,9 @@ async def test_request_reset_invalidates_existing_active_codes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user = FakeUser(id=uuid4(), email="user@example.com")
+    user.failed_login_count = 3
+    user.locked_at = object()
+    user.lock_reason = "failed_password"
     service, reset_repository, *_rest = _build_service(user)
 
     monkeypatch.setattr(service, "_generate_code", lambda: "111111")
@@ -265,6 +276,9 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
     )
 
     assert user.password_hash == "hashed:NewPassw0rd!"
+    assert user.failed_login_count == 0
+    assert user.locked_at is None
+    assert user.lock_reason is None
     assert refresh_repository.revoked_for_user == user.id
     assert session_service.revoked_for_user == user.id
     assert len(redis.values) == len(session_service.active_session_ids)
@@ -272,4 +286,6 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
     assert brute_force_service.cleared == [
         ("password_reset", "user@example.com:127.0.0.1"),
         ("password_reset_account", "user@example.com"),
+        ("login", "user@example.com:127.0.0.1"),
+        ("login_account", "user@example.com"),
     ]

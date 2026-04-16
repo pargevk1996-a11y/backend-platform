@@ -36,6 +36,13 @@ Security-first backend platform in microservices style.
    - `make migrate-auth`
    - `make migrate-user`
 
+## Browser auth contract
+- Browser clients must use the API gateway on the same origin.
+- The gateway stores access and refresh tokens in HttpOnly cookies and returns only sanitized auth status JSON to the browser.
+- Browser state-changing session calls must send `X-CSRF-Token` with the value from the `bp_csrf_token` cookie.
+- Internal services still receive `Authorization: Bearer <access-token>` from the gateway. Do not expose `auth-service` or `user-service` directly outside the private network.
+- Accounts are locked after 3 wrong passwords and are unlocked only by a successful password reset.
+
 ## Health checks
 - Gateway: `GET /v1/health/live`, `GET /v1/health/ready`
 - Auth: `GET /v1/health/live`, `GET /v1/health/ready`

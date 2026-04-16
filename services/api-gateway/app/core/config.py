@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     rate_limit_public_auth_per_minute: int = 30
     rate_limit_protected_per_minute: int = 120
 
+    auth_access_cookie_name: str = "bp_access_token"
+    auth_refresh_cookie_name: str = "bp_refresh_token"
+    auth_csrf_cookie_name: str = "bp_csrf_token"
+    auth_cookie_secure: bool | None = None
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    auth_cookie_domain: str | None = None
+    auth_access_cookie_max_age_seconds: int = 900
+    auth_refresh_cookie_max_age_seconds: int = 60 * 60 * 24 * 30
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def _parse_origins(cls, value: str | list[str] | None) -> list[str]:
@@ -97,6 +106,10 @@ class Settings(BaseSettings):
             raise ValueError("Wildcard CORS origin is not allowed in staging or production")
         if "BEGIN" not in self.jwt_public_key_value:
             raise ValueError("Deployed asymmetric JWT public key must be PEM-formatted")
+        if not self.auth_cookie_secure_value:
+            raise ValueError("Staging and production require secure auth cookies")
+        if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure_value:
+            raise ValueError("SameSite=None auth cookies require Secure")
         return self
 
     @property
@@ -106,6 +119,12 @@ class Settings(BaseSettings):
     @property
     def privacy_key_pepper_value(self) -> str:
         return self.privacy_key_pepper.get_secret_value()
+
+    @property
+    def auth_cookie_secure_value(self) -> bool:
+        if self.auth_cookie_secure is not None:
+            return self.auth_cookie_secure
+        return self.service_env != "development"
 
 
 @lru_cache(maxsize=1)

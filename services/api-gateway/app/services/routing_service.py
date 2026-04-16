@@ -26,6 +26,11 @@ FORWARDED_HEADERS = {
     "x-real-ip",
 }
 
+BLOCKED_REQUEST_HEADERS = {
+    "cookie",
+    "x-csrf-token",
+}
+
 BLOCKED_RESPONSE_HEADERS = {
     "server",
     "set-cookie",
@@ -108,6 +113,7 @@ class RoutingService:
             if (
                 lower in HOP_BY_HOP_HEADERS
                 or lower in FORWARDED_HEADERS
+                or lower in BLOCKED_REQUEST_HEADERS
                 or lower == "host"
                 or lower == "content-length"
             ):

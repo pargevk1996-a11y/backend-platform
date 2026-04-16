@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
-from app.exceptions.auth import InvalidCredentialsException
+from app.exceptions.auth import AccountLockedException, InvalidCredentialsException
 from app.exceptions.two_factor import InvalidChallengeException
 from app.services.auth_service import AuthService
 from app.services.refresh_token_service import TokenPair
@@ -19,6 +19,9 @@ class FakeUser:
     password_hash: str
     two_factor_enabled: bool
     is_active: bool = True
+    failed_login_count: int = 0
+    locked_at: object | None = None
+    lock_reason: str | None = None
 
 
 class FakeSession:
@@ -52,14 +55,37 @@ class FakeUserRepository:
         _ = session
         return self.user if email == self.user.email else None
 
+    async def get_by_email_for_update(self, session, email: str):
+        _ = session
+        return self.user if email == self.user.email else None
+
     async def get_by_id(self, session, user_id: UUID):
         _ = session
         return self.user if self.user.id == user_id else None
+
+    async def record_failed_login(
+        self,
+        user: FakeUser,
+        *,
+        lock_threshold: int,
+        reason: str,
+    ) -> bool:
+        user.failed_login_count += 1
+        if user.failed_login_count >= lock_threshold and user.locked_at is None:
+            user.locked_at = object()
+            user.lock_reason = reason
+        return user.locked_at is not None
+
+    async def clear_login_failures(self, user: FakeUser) -> None:
+        user.failed_login_count = 0
 
 
 class FakePasswordService:
     def verify_password(self, password: str, password_hash: str) -> bool:
         return password == "CorrectPassword!1" and password_hash == "hash"
+
+    def verify_against_dummy_hash(self, password: str) -> None:
+        _ = password
 
 
 class FakeRefreshTokenService:
@@ -88,14 +114,18 @@ class FakeTwoFactorService:
 
 
 class FakeBruteForceService:
+    def __init__(self) -> None:
+        self.failures: list[tuple[str, str]] = []
+        self.cleared: list[tuple[str, str]] = []
+
     async def assert_not_locked(self, *, scope: str, identifier: str) -> None:
         _ = (scope, identifier)
 
     async def record_failure(self, *, scope: str, identifier: str) -> None:
-        _ = (scope, identifier)
+        self.failures.append((scope, identifier))
 
     async def clear_failures(self, *, scope: str, identifier: str) -> None:
-        _ = (scope, identifier)
+        self.cleared.append((scope, identifier))
 
 
 class FakeAuditService:
@@ -271,5 +301,52 @@ async def test_login_rejects_inactive_user() -> None:
             email="user@example.com",
             password="CorrectPassword!1",
             ip_address="127.0.0.1",
+            user_agent="pytest",
+        )
+
+
+@pytest.mark.asyncio
+async def test_login_locks_account_after_three_wrong_passwords_until_reset() -> None:
+    user = FakeUser(
+        id=uuid4(),
+        email="user@example.com",
+        password_hash="hash",
+        two_factor_enabled=False,
+    )
+    session = FakeSession()
+    redis = FakeRedis()
+    brute_force = FakeBruteForceService()
+    service = AuthService(
+        settings=get_settings(),
+        redis=redis,
+        user_repository=FakeUserRepository(user),
+        password_service=FakePasswordService(),
+        refresh_token_service=FakeRefreshTokenService(),
+        two_factor_service=FakeTwoFactorService(),
+        brute_force_service=brute_force,
+        audit_service=FakeAuditService(),
+    )
+
+    for attempt in range(1, 4):
+        expected = AccountLockedException if attempt == 3 else InvalidCredentialsException
+        with pytest.raises(expected):
+            await service.login(
+                session,
+                email="user@example.com",
+                password="WrongPassword!1",
+                ip_address=f"203.0.113.{attempt}",
+                user_agent="pytest",
+            )
+
+    assert user.failed_login_count == 3
+    assert user.locked_at is not None
+    assert user.lock_reason == "failed_password"
+
+    with pytest.raises(AccountLockedException):
+        await service.login(
+            session,
+            email="user@example.com",
+            password="CorrectPassword!1",
+            ip_address="203.0.113.99",
             user_agent="pytest",
         )

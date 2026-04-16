@@ -180,6 +180,7 @@ class PasswordResetService:
 
         password_hash = self.password_service.hash_password(new_password)
         await self.user_repository.update_password(user, password_hash)
+        await self.user_repository.clear_login_lock(user)
         await self.password_reset_repository.mark_used(record, now)
 
         active_session_ids = await self.session_service.list_active_session_ids_for_user(
@@ -196,6 +197,11 @@ class PasswordResetService:
         )
         await self.brute_force_service.clear_failures(
             scope="password_reset_account",
+            identifier=account_identifier,
+        )
+        await self.brute_force_service.clear_failures(scope="login", identifier=identifier)
+        await self.brute_force_service.clear_failures(
+            scope="login_account",
             identifier=account_identifier,
         )
 

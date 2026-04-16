@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
+from app.exceptions.token import TokenReuseDetectedException
 from app.services.jwt_service import JWTService
 from app.services.refresh_token_service import RefreshTokenService
 
@@ -112,3 +113,45 @@ async def test_refresh_token_rotation() -> None:
     assert rotated.refresh_token != issued.refresh_token
     assert rotated.access_token != issued.access_token
     assert rotated.refresh_family_id == issued.refresh_family_id
+
+
+@pytest.mark.asyncio
+async def test_reusing_rotated_refresh_token_revokes_family() -> None:
+    settings = get_settings()
+    jwt_service = JWTService(settings)
+    repo = FakeRefreshRepo()
+    session_service = FakeSessionService()
+    service = RefreshTokenService(
+        settings=settings,
+        repository=repo,
+        jwt_service=jwt_service,
+        session_service=session_service,
+    )
+    issued = await service.issue_for_user(
+        None,
+        user_id=uuid4(),
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+    )
+
+    await service.rotate(
+        None,
+        raw_refresh_token=issued.refresh_token,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+    )
+
+    with pytest.raises(TokenReuseDetectedException):
+        await service.rotate(
+            None,
+            raw_refresh_token=issued.refresh_token,
+            ip_address="127.0.0.2",
+            user_agent="pytest",
+        )
+
+    assert issued.refresh_family_id not in session_service.active_families
+    assert all(
+        record.revoked_at is not None
+        for record in repo.records.values()
+        if record.family_id == issued.refresh_family_id
+    )

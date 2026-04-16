@@ -42,6 +42,12 @@ def _strong_password() -> str:
     return "StrongPassword!12345"
 
 
+def _csrf_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    token = client.cookies.get("bp_csrf_token")
+    assert token
+    return {"X-CSRF-Token": token}
+
+
 async def _wait_for_next_totp_code(totp: pyotp.TOTP, *, previous_code: str) -> str:
     deadline = datetime.now(UTC).timestamp() + 35
     while datetime.now(UTC).timestamp() < deadline:
@@ -64,12 +70,15 @@ async def test_gateway_auth_security_flow() -> None:
         )
         assert register_response.status_code == 201, register_response.text
         register_payload = register_response.json()
-        access_token = register_payload["access_token"]
-        initial_refresh = register_payload["refresh_token"]
+        assert register_payload["auth"] == "cookie"
+        assert "access_token" not in register_payload
+        assert "refresh_token" not in register_payload
+        assert client.cookies.get("bp_access_token")
+        assert client.cookies.get("bp_refresh_token")
 
         setup_response = await client.post(
             "/v1/two-factor/setup",
-            headers={"Authorization": f"Bearer {access_token}"},
+            headers=_csrf_headers(client),
         )
         assert setup_response.status_code == 200, setup_response.text
         setup_payload = setup_response.json()
@@ -79,12 +88,19 @@ async def test_gateway_auth_security_flow() -> None:
         current_code = totp.at(for_time=datetime.now(UTC))
         enable_response = await client.post(
             "/v1/two-factor/enable",
-            headers={"Authorization": f"Bearer {access_token}"},
+            headers=_csrf_headers(client),
             json={"totp_code": current_code},
         )
         assert enable_response.status_code == 200, enable_response.text
         backup_codes = enable_response.json()["backup_codes"]
         assert isinstance(backup_codes, list) and len(backup_codes) == 10
+
+        logout_response = await client.post(
+            "/v1/tokens/revoke",
+            headers=_csrf_headers(client),
+            json={},
+        )
+        assert logout_response.status_code == 200, logout_response.text
 
         login_response = await client.post(
             "/v1/auth/login",
@@ -103,15 +119,24 @@ async def test_gateway_auth_security_flow() -> None:
         )
         assert login_2fa_response.status_code == 200, login_2fa_response.text
         token_pair = login_2fa_response.json()
-        rotated_refresh = token_pair["refresh_token"]
+        assert token_pair["auth"] == "cookie"
+        assert "access_token" not in token_pair
+        assert "refresh_token" not in token_pair
+        old_access_cookie = client.cookies.get("bp_access_token")
+        rotated_refresh = client.cookies.get("bp_refresh_token")
+        assert old_access_cookie
+        assert rotated_refresh
 
         refresh_response = await client.post(
             "/v1/tokens/refresh",
-            json={"refresh_token": rotated_refresh},
+            headers=_csrf_headers(client),
+            json={},
         )
         assert refresh_response.status_code == 200, refresh_response.text
         refresh_payload = refresh_response.json()
-        newest_refresh = refresh_payload["refresh_token"]
+        assert refresh_payload["auth"] == "cookie"
+        newest_refresh = client.cookies.get("bp_refresh_token")
+        assert newest_refresh
         assert newest_refresh != rotated_refresh
 
         reused_response = await client.post(
@@ -122,14 +147,19 @@ async def test_gateway_auth_security_flow() -> None:
 
         revoke_response = await client.post(
             "/v1/tokens/revoke",
-            json={"refresh_token": newest_refresh, "revoke_family": True},
+            headers=_csrf_headers(client),
+            json={},
         )
         assert revoke_response.status_code == 200, revoke_response.text
+
+        post_logout_access = await client.post(
+            "/v1/two-factor/setup",
+            headers={"Authorization": f"Bearer {old_access_cookie}"},
+        )
+        assert post_logout_access.status_code == 401, post_logout_access.text
 
         post_revoke_refresh = await client.post(
             "/v1/tokens/refresh",
             json={"refresh_token": newest_refresh},
         )
         assert post_revoke_refresh.status_code in {401, 409}, post_revoke_refresh.text
-
-        _ = initial_refresh
