@@ -13,6 +13,7 @@ from app.exceptions.gateway import ForbiddenException
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 CSRF_HEADER = "x-csrf-token"
+LOGIN_CHALLENGE_HEADER = "x-login-challenge-nonce"
 
 
 @dataclass(slots=True, frozen=True)
@@ -48,7 +49,15 @@ def csrf_cookie(request: Request, settings: Settings) -> str | None:
     return request.cookies.get(settings.auth_csrf_cookie_name)
 
 
+def login_challenge_cookie(request: Request, settings: Settings) -> str | None:
+    return request.cookies.get(settings.auth_login_challenge_cookie_name)
+
+
 def new_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def new_login_challenge_nonce() -> str:
     return secrets.token_urlsafe(32)
 
 
@@ -153,6 +162,34 @@ def clear_browser_auth_cookies(response: Response, *, settings: Settings) -> Non
             secure=settings.auth_cookie_secure_value,
             samesite=settings.auth_cookie_samesite,
         )
+
+
+def set_login_challenge_cookie(
+    response: Response,
+    *,
+    settings: Settings,
+    nonce: str,
+) -> None:
+    response.set_cookie(
+        settings.auth_login_challenge_cookie_name,
+        nonce,
+        max_age=settings.auth_login_challenge_cookie_max_age_seconds,
+        httponly=True,
+        secure=settings.auth_cookie_secure_value,
+        samesite=settings.auth_cookie_samesite,
+        domain=settings.auth_cookie_domain,
+        path="/",
+    )
+
+
+def clear_login_challenge_cookie(response: Response, *, settings: Settings) -> None:
+    response.delete_cookie(
+        settings.auth_login_challenge_cookie_name,
+        path="/",
+        domain=settings.auth_cookie_domain,
+        secure=settings.auth_cookie_secure_value,
+        samesite=settings.auth_cookie_samesite,
+    )
 
 
 def sanitized_auth_payload(

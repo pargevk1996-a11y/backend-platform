@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     jwt_audience: str = "backend-clients"
     jwt_access_ttl_seconds: int = 900
     jwt_refresh_ttl_seconds: int = 60 * 60 * 24 * 30
+    refresh_rotation_retry_window_seconds: int = 5
     jwt_private_key: SecretStr = Field(alias="JWT_PRIVATE_KEY")
     jwt_public_key: SecretStr = Field(alias="JWT_PUBLIC_KEY")
 

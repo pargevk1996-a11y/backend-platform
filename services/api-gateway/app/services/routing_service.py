@@ -28,6 +28,7 @@ FORWARDED_HEADERS = {
 
 BLOCKED_REQUEST_HEADERS = {
     "cookie",
+    "x-login-challenge-nonce",
     "x-csrf-token",
 }
 

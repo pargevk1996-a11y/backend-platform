@@ -70,6 +70,7 @@ async def login(
         password=payload.password,
         ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
+        challenge_nonce=request.headers.get("x-login-challenge-nonce"),
     )
 
     if result.requires_2fa:
@@ -106,6 +107,7 @@ async def verify_login_2fa(
         backup_code=payload.backup_code,
         ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
+        challenge_nonce=request.headers.get("x-login-challenge-nonce"),
     )
     return TokenPairResponse(
         access_token=token_pair.access_token,

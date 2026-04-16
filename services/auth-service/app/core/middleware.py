@@ -9,6 +9,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 MAX_REQUEST_ID_LENGTH = 128
+AUTH_SENSITIVE_ENDPOINTS = {
+    ("POST", "/v1/auth/register"),
+    ("POST", "/v1/auth/login"),
+    ("POST", "/v1/auth/login/2fa"),
+    ("POST", "/v1/tokens/refresh"),
+    ("POST", "/v1/tokens/revoke"),
+    ("POST", "/v1/two-factor/setup"),
+    ("POST", "/v1/two-factor/enable"),
+    ("POST", "/v1/two-factor/disable"),
+    ("POST", "/v1/two-factor/backup-codes/regenerate"),
+}
 
 
 def _request_id_from_header(value: str | None) -> str:
@@ -18,6 +29,17 @@ def _request_id_from_header(value: str | None) -> str:
     if not normalized or len(normalized) > MAX_REQUEST_ID_LENGTH:
         return str(uuid4())
     return normalized
+
+
+def should_disable_caching(method: str, path: str) -> bool:
+    normalized_path = path.rstrip("/") or "/"
+    return (method.upper(), normalized_path) in AUTH_SENSITIVE_ENDPOINTS
+
+
+def apply_no_store_headers(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -69,4 +91,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'none'; frame-ancestors 'none';"
             )
+        return response
+
+
+class NoStoreHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        if should_disable_caching(request.method, request.url.path):
+            apply_no_store_headers(response)
         return response

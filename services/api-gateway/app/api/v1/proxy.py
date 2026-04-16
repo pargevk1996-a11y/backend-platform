@@ -11,15 +11,20 @@ from app.api.deps import (
 )
 from app.core.config import Settings
 from app.core.cookies import (
+    LOGIN_CHALLENGE_HEADER,
     access_cookie,
     clear_browser_auth_cookies,
+    clear_login_challenge_cookie,
     encode_json_body,
     extract_token_pair,
+    login_challenge_cookie,
+    new_login_challenge_nonce,
     read_json_body,
     refresh_cookie,
     require_cookie_csrf_for_unsafe,
     require_csrf,
     sanitized_auth_payload,
+    set_login_challenge_cookie,
     set_browser_auth_cookies,
 )
 from app.core.rate_limit import RateLimiter
@@ -65,12 +70,20 @@ async def proxy_request(
     headers = dict(request.headers)
     body = await request.body()
     client_ip = get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips)
+    issued_login_challenge_nonce: str | None = None
     if is_public:
         await rate_limiter.check(
             request=request,
             scope="public_auth",
             limit_per_minute=settings.rate_limit_public_auth_per_minute,
         )
+        if path == "/v1/auth/login":
+            issued_login_challenge_nonce = new_login_challenge_nonce()
+            headers[LOGIN_CHALLENGE_HEADER] = issued_login_challenge_nonce
+        elif path == "/v1/auth/login/2fa":
+            challenge_nonce = login_challenge_cookie(request, settings)
+            if challenge_nonce:
+                headers[LOGIN_CHALLENGE_HEADER] = challenge_nonce
         if path in {"/v1/tokens/refresh", "/v1/tokens/revoke"}:
             parsed_body = read_json_body(body)
             refresh_token = parsed_body.get("refresh_token") if parsed_body is not None else None
@@ -90,6 +103,7 @@ async def proxy_request(
                     media_type="application/json",
                 )
                 clear_browser_auth_cookies(response, settings=settings)
+                clear_login_challenge_cookie(response, settings=settings)
                 return response
     else:
         await rate_limiter.check(
@@ -137,6 +151,15 @@ async def proxy_request(
     if proxied.status_code in {200, 201} and path in TOKEN_ISSUING_PATHS:
         parsed = read_json_body(proxied.body)
         if parsed is not None:
+            if path == "/v1/auth/login":
+                if parsed.get("requires_2fa") is True and issued_login_challenge_nonce:
+                    set_login_challenge_cookie(
+                        response,
+                        settings=settings,
+                        nonce=issued_login_challenge_nonce,
+                    )
+                else:
+                    clear_login_challenge_cookie(response, settings=settings)
             token_pair = extract_token_pair(parsed)
             if token_pair is not None:
                 response_body = encode_json_body(
@@ -149,8 +172,11 @@ async def proxy_request(
                     headers=response_headers,
                 )
                 set_browser_auth_cookies(response, settings=settings, token_pair=token_pair)
+                if path in {"/v1/auth/login", "/v1/auth/login/2fa", "/v1/tokens/refresh"}:
+                    clear_login_challenge_cookie(response, settings=settings)
 
     if proxied.status_code < 400 and path == "/v1/tokens/revoke":
         clear_browser_auth_cookies(response, settings=settings)
+        clear_login_challenge_cookie(response, settings=settings)
 
     return response

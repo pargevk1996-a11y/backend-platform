@@ -9,6 +9,10 @@ def access_session_revoked_key(session_id: str) -> str:
     return f"access_session_revoked:{session_id}"
 
 
+def refresh_rotation_retry_key(token_jti: str) -> str:
+    return f"refresh_rotation_retry:{token_jti}"
+
+
 def brute_force_fail_key(*, scope: str, identifier: str) -> str:
     return f"brute_force:{scope}:{identifier}:fail"
 

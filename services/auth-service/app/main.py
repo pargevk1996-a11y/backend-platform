@@ -13,7 +13,11 @@ from app.api.v1.sessions import router as sessions_router
 from app.api.v1.tokens import router as tokens_router
 from app.api.v1.two_factor import router as two_factor_router
 from app.core.config import get_settings
-from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import (
+    NoStoreHeadersMiddleware,
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.core.validation import sanitize_validation_errors
 from app.exceptions.base import AppException
 from app.lifecycle import lifespan
@@ -33,6 +37,7 @@ app = FastAPI(
 
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(NoStoreHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,

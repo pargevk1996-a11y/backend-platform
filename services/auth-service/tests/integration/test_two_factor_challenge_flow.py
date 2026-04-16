@@ -161,6 +161,7 @@ async def test_login_requires_2fa_and_challenge_verification_issues_tokens() -> 
         password="CorrectPassword!1",
         ip_address="127.0.0.1",
         user_agent="pytest",
+        challenge_nonce=None,
     )
 
     assert login_step.requires_2fa is True
@@ -174,6 +175,7 @@ async def test_login_requires_2fa_and_challenge_verification_issues_tokens() -> 
     assert "ip_address" not in payload
     assert "user_agent" not in payload
     assert isinstance(payload["ip_fingerprint"], str)
+    assert payload["challenge_nonce_fingerprint"] is None
     assert "user_agent_fingerprint" not in payload
 
     token_pair = await service.verify_login_challenge(
@@ -183,6 +185,7 @@ async def test_login_requires_2fa_and_challenge_verification_issues_tokens() -> 
         backup_code=None,
         ip_address="127.0.0.1",
         user_agent="pytest",
+        challenge_nonce=None,
     )
 
     assert token_pair.access_token == "access"
@@ -218,6 +221,7 @@ async def test_login_challenge_accepts_same_ip_different_user_agent() -> None:
         password="CorrectPassword!1",
         ip_address="127.0.0.1",
         user_agent="pytest-agent-a",
+        challenge_nonce=None,
     )
 
     token_pair = await service.verify_login_challenge(
@@ -227,6 +231,53 @@ async def test_login_challenge_accepts_same_ip_different_user_agent() -> None:
         backup_code=None,
         ip_address="127.0.0.1",
         user_agent="pytest-agent-b",
+        challenge_nonce=None,
+    )
+    assert token_pair.access_token == "access"
+
+
+@pytest.mark.asyncio
+async def test_login_challenge_accepts_gateway_nonce_after_ip_change() -> None:
+    user = FakeUser(
+        id=uuid4(),
+        email="user@example.com",
+        password_hash="hash",
+        two_factor_enabled=True,
+    )
+    session = FakeSession()
+    redis = FakeRedis()
+    service = AuthService(
+        settings=get_settings(),
+        redis=redis,
+        user_repository=FakeUserRepository(user),
+        password_service=FakePasswordService(),
+        refresh_token_service=FakeRefreshTokenService(),
+        two_factor_service=FakeTwoFactorService(),
+        brute_force_service=FakeBruteForceService(),
+        audit_service=FakeAuditService(),
+    )
+
+    login_step = await service.login(
+        session,
+        email="user@example.com",
+        password="CorrectPassword!1",
+        ip_address="127.0.0.1",
+        user_agent="pytest-agent",
+        challenge_nonce="gateway-bound-nonce",
+    )
+
+    challenge_key = f"login_challenge:{login_step.challenge_id}"
+    payload = json.loads(redis.store[challenge_key])
+    assert isinstance(payload["challenge_nonce_fingerprint"], str)
+
+    token_pair = await service.verify_login_challenge(
+        session,
+        challenge_id=login_step.challenge_id or "",
+        totp_code="123456",
+        backup_code=None,
+        ip_address="127.0.0.2",
+        user_agent="pytest-agent",
+        challenge_nonce="gateway-bound-nonce",
     )
     assert token_pair.access_token == "access"
 
@@ -258,6 +309,7 @@ async def test_login_challenge_rejects_context_mismatch() -> None:
         password="CorrectPassword!1",
         ip_address="127.0.0.1",
         user_agent="pytest-agent",
+        challenge_nonce=None,
     )
 
     with pytest.raises(InvalidChallengeException):
@@ -268,6 +320,7 @@ async def test_login_challenge_rejects_context_mismatch() -> None:
             backup_code=None,
             ip_address="127.0.0.2",
             user_agent="pytest-agent",
+            challenge_nonce=None,
         )
     challenge_key = f"login_challenge:{login_step.challenge_id}"
     assert challenge_key not in redis.store
@@ -302,6 +355,7 @@ async def test_login_rejects_inactive_user() -> None:
             password="CorrectPassword!1",
             ip_address="127.0.0.1",
             user_agent="pytest",
+            challenge_nonce=None,
         )
 
 
@@ -336,6 +390,7 @@ async def test_login_locks_account_after_three_wrong_passwords_until_reset() -> 
                 password="WrongPassword!1",
                 ip_address=f"203.0.113.{attempt}",
                 user_agent="pytest",
+                challenge_nonce=None,
             )
 
     assert user.failed_login_count == 3
@@ -349,4 +404,5 @@ async def test_login_locks_account_after_three_wrong_passwords_until_reset() -> 
             password="CorrectPassword!1",
             ip_address="203.0.113.99",
             user_agent="pytest",
+            challenge_nonce=None,
         )

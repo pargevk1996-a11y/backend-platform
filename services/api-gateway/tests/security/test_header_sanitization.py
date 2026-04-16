@@ -25,6 +25,7 @@ async def test_hop_by_hop_headers_are_removed() -> None:
                 "X-Real-IP": "203.0.113.11",
                 "Cookie": "bp_access_token=secret",
                 "X-CSRF-Token": "csrf",
+                "X-Login-Challenge-Nonce": "challenge",
                 "Authorization": "Bearer token",
                 "Content-Type": "application/json",
             }
@@ -38,6 +39,7 @@ async def test_hop_by_hop_headers_are_removed() -> None:
         assert "X-Real-IP" not in sanitized
         assert "Cookie" not in sanitized
         assert "X-CSRF-Token" not in sanitized
+        assert "X-Login-Challenge-Nonce" not in sanitized
 
 
 @pytest.mark.asyncio

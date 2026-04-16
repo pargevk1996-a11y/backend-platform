@@ -5,6 +5,7 @@ from app.core.cookies import (
     BrowserTokenPair,
     extract_token_pair,
     sanitized_auth_payload,
+    set_login_challenge_cookie,
     set_browser_auth_cookies,
 )
 from fastapi import Response
@@ -74,3 +75,26 @@ def test_browser_auth_cookies_are_httponly_for_tokens() -> None:
     assert "HttpOnly" in refresh_cookie
     assert "HttpOnly" not in csrf_cookie
     assert "SameSite=lax" in access_cookie
+
+
+def test_login_challenge_cookie_is_httponly() -> None:
+    settings = get_settings()
+    response = Response()
+
+    set_login_challenge_cookie(
+        response,
+        settings=settings,
+        nonce="challenge-nonce",
+    )
+
+    set_cookie_headers = [
+        value.decode("latin-1")
+        for key, value in response.raw_headers
+        if key.decode("latin-1").lower() == "set-cookie"
+    ]
+    challenge_cookie = next(
+        header for header in set_cookie_headers if header.startswith("bp_login_challenge=")
+    )
+
+    assert "HttpOnly" in challenge_cookie
+    assert "SameSite=lax" in challenge_cookie

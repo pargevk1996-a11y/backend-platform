@@ -54,11 +54,13 @@ class Settings(BaseSettings):
     auth_access_cookie_name: str = "bp_access_token"
     auth_refresh_cookie_name: str = "bp_refresh_token"
     auth_csrf_cookie_name: str = "bp_csrf_token"
+    auth_login_challenge_cookie_name: str = "bp_login_challenge"
     auth_cookie_secure: bool | None = None
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     auth_cookie_domain: str | None = None
     auth_access_cookie_max_age_seconds: int = 900
     auth_refresh_cookie_max_age_seconds: int = 60 * 60 * 24 * 30
+    auth_login_challenge_cookie_max_age_seconds: int = 600
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

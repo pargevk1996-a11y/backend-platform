@@ -69,12 +69,14 @@ def get_session_service() -> SessionService:
     return SessionService(get_session_repository())
 
 
-def get_refresh_token_service() -> RefreshTokenService:
+async def get_refresh_token_service(request: Request) -> RefreshTokenService:
+    redis = await get_redis(request)
     return RefreshTokenService(
         settings=get_settings(),
         repository=get_refresh_token_repository(),
         jwt_service=get_jwt_service(),
         session_service=get_session_service(),
+        rotation_retry_cache=redis,
     )
 
 

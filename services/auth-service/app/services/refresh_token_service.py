@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import hmac
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID, uuid4
 
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.constants import TOKEN_TYPE_REFRESH
 from app.exceptions.token import InvalidTokenException, TokenReuseDetectedException
+from app.integrations.redis.keys import refresh_rotation_retry_key
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.services.jwt_service import JWTService
 from app.services.session_service import SessionService
@@ -41,16 +44,67 @@ class RefreshTokenService:
         repository: RefreshTokenRepository,
         jwt_service: JWTService,
         session_service: SessionService,
+        rotation_retry_cache: Redis | None = None,
     ) -> None:
         self.settings = settings
         self.repository = repository
         self.jwt_service = jwt_service
         self.session_service = session_service
+        self.rotation_retry_cache = rotation_retry_cache
 
     def _hash_refresh_token(self, raw_token: str) -> str:
         pepper = self.settings.refresh_token_hash_pepper_value.encode("utf-8")
         digest = hmac.new(pepper, raw_token.encode("utf-8"), sha256).hexdigest()
         return digest
+
+    async def _load_rotation_retry_result(self, token_jti: UUID) -> TokenPair | None:
+        if self.rotation_retry_cache is None:
+            return None
+
+        cached = await self.rotation_retry_cache.get(refresh_rotation_retry_key(str(token_jti)))
+        if cached is None:
+            return None
+
+        try:
+            payload = json.loads(cached)
+            return TokenPair(
+                access_token=payload["access_token"],
+                refresh_token=payload["refresh_token"],
+                access_expires_in=int(payload["access_expires_in"]),
+                refresh_family_id=UUID(payload["refresh_family_id"]),
+                session_id=UUID(payload["session_id"]),
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+    async def _store_rotation_retry_result(self, token_jti: UUID, token_pair: TokenPair) -> None:
+        if self.rotation_retry_cache is None:
+            return
+
+        window_seconds = self.settings.refresh_rotation_retry_window_seconds
+        if window_seconds <= 0:
+            return
+
+        payload = {
+            "access_token": token_pair.access_token,
+            "refresh_token": token_pair.refresh_token,
+            "access_expires_in": token_pair.access_expires_in,
+            "refresh_family_id": str(token_pair.refresh_family_id),
+            "session_id": str(token_pair.session_id),
+        }
+        await self.rotation_retry_cache.set(
+            refresh_rotation_retry_key(str(token_jti)),
+            json.dumps(payload, separators=(",", ":")),
+            ex=window_seconds,
+        )
+
+    def _within_rotation_retry_window(self, rotated_at: datetime | None, *, now: datetime) -> bool:
+        if rotated_at is None:
+            return False
+        window_seconds = self.settings.refresh_rotation_retry_window_seconds
+        if window_seconds <= 0:
+            return False
+        return (now - rotated_at).total_seconds() <= window_seconds
 
     async def issue_for_user(
         self,
@@ -143,10 +197,17 @@ class RefreshTokenService:
         if token_record.expires_at < now:
             raise InvalidTokenException("Refresh token expired")
 
-        if token_record.revoked_at is not None or token_record.rotated_at is not None:
+        if token_record.rotated_at is not None:
+            if self._within_rotation_retry_window(token_record.rotated_at, now=now):
+                retry_result = await self._load_rotation_retry_result(token_jti)
+                if retry_result is not None:
+                    return retry_result
+                raise InvalidTokenException("Refresh rotation already completed")
             await self.repository.revoke_family(session, family_id, "reuse_detected")
             await self.session_service.revoke_family(session, family_id)
             raise TokenReuseDetectedException(session_id=session_id, family_id=family_id)
+        if token_record.revoked_at is not None:
+            raise InvalidTokenException("Refresh token revoked")
 
         new_jti = uuid4()
         new_refresh_token, new_refresh_exp = self.jwt_service.issue_refresh_token(
@@ -175,13 +236,15 @@ class RefreshTokenService:
             session_id=session_id,
         )
 
-        return TokenPair(
+        token_pair = TokenPair(
             access_token=access_token,
             refresh_token=new_refresh_token,
             access_expires_in=access_expires_in,
             refresh_family_id=family_id,
             session_id=session_id,
         )
+        await self._store_rotation_retry_result(token_jti, token_pair)
+        return token_pair
 
     async def revoke(
         self,

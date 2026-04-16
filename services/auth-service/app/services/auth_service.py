@@ -108,6 +108,7 @@ class AuthService:
         password: str,
         ip_address: str | None,
         user_agent: str | None,
+        challenge_nonce: str | None = None,
     ) -> LoginStepResult:
         normalized_email = email.lower()
         identifier = f"{normalized_email}:{ip_address or 'unknown'}"
@@ -196,6 +197,7 @@ class AuthService:
             challenge_id = await self._create_login_challenge(
                 user_id=user.id,
                 ip_address=ip_address,
+                challenge_nonce=challenge_nonce,
             )
             return LoginStepResult(requires_2fa=True, challenge_id=challenge_id, tokens=None)
 
@@ -227,6 +229,7 @@ class AuthService:
         backup_code: str | None,
         ip_address: str | None,
         user_agent: str | None,
+        challenge_nonce: str | None = None,
     ) -> TokenPair:
         identifier = f"{challenge_id}:{ip_address or 'unknown'}"
         await self.brute_force_service.assert_not_locked(scope="2fa", identifier=identifier)
@@ -235,7 +238,10 @@ class AuthService:
         if challenge is None:
             raise InvalidChallengeException()
         if not self._challenge_context_matches(
-            challenge, ip_address=ip_address, user_agent=user_agent
+            challenge,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            challenge_nonce=challenge_nonce,
         ):
             await self.brute_force_service.record_failure(scope="2fa", identifier=identifier)
             await self._delete_login_challenge(challenge_id)
@@ -421,11 +427,15 @@ class AuthService:
         *,
         user_id: UUID,
         ip_address: str | None,
+        challenge_nonce: str | None,
     ) -> str:
         challenge_id = str(uuid4())
         payload = {
             "user_id": str(user_id),
             "ip_fingerprint": self._context_fingerprint(ip_address),
+            "challenge_nonce_fingerprint": (
+                self._context_fingerprint(challenge_nonce) if challenge_nonce else None
+            ),
         }
         key = login_challenge_key(challenge_id)
         await self.redis.set(key, json.dumps(payload), ex=self.settings.login_challenge_ttl_seconds)
@@ -443,6 +453,7 @@ class AuthService:
         return {
             "user_id": decoded.get("user_id"),
             "ip_fingerprint": decoded.get("ip_fingerprint"),
+            "challenge_nonce_fingerprint": decoded.get("challenge_nonce_fingerprint"),
         }
 
     async def _delete_login_challenge(self, challenge_id: str) -> None:
@@ -459,9 +470,15 @@ class AuthService:
         *,
         ip_address: str | None,
         user_agent: str | None,
+        challenge_nonce: str | None,
     ) -> bool:
-        """Bind challenge to client IP only; User-Agent is too unstable on mobile networks."""
+        """Allow a gateway-bound nonce for browser flows and fall back to IP matching."""
         _ = user_agent
+        expected_nonce = challenge.get("challenge_nonce_fingerprint")
+        if expected_nonce is not None and challenge_nonce:
+            actual_nonce = self._context_fingerprint(challenge_nonce)
+            if hmac.compare_digest(expected_nonce, actual_nonce):
+                return True
         expected_ip = challenge.get("ip_fingerprint")
         if expected_ip is None:
             return False
