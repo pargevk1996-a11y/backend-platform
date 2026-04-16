@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
-from app.exceptions.token import TokenReuseDetectedException
+from app.exceptions.token import InvalidTokenException, TokenReuseDetectedException
 from app.services.jwt_service import JWTService
 from app.services.refresh_token_service import RefreshTokenService
 
@@ -211,3 +211,50 @@ async def test_retrying_recent_refresh_rotation_returns_cached_pair_without_revo
     assert retried.refresh_token == rotated.refresh_token
     assert retried.access_token == rotated.access_token
     assert issued.refresh_family_id in session_service.active_families
+
+
+@pytest.mark.asyncio
+async def test_retrying_recent_refresh_without_cached_pair_does_not_revoke_family() -> None:
+    settings = get_settings()
+    jwt_service = JWTService(settings)
+    repo = FakeRefreshRepo()
+    session_service = FakeSessionService()
+    redis = FakeRedis()
+    service = RefreshTokenService(
+        settings=settings,
+        repository=repo,
+        jwt_service=jwt_service,
+        session_service=session_service,
+        rotation_retry_cache=redis,
+    )
+    issued = await service.issue_for_user(
+        None,
+        user_id=uuid4(),
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+    )
+
+    await service.rotate(
+        None,
+        raw_refresh_token=issued.refresh_token,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+    )
+    redis.values.clear()
+
+    with pytest.raises(InvalidTokenException):
+        await service.rotate(
+            None,
+            raw_refresh_token=issued.refresh_token,
+            ip_address="127.0.0.2",
+            user_agent="pytest",
+        )
+
+    family_records = [
+        record
+        for record in repo.records.values()
+        if record.family_id == issued.refresh_family_id
+    ]
+    assert issued.refresh_family_id in session_service.active_families
+    assert any(record.revoked_at is None for record in family_records)
+    assert all(record.revocation_reason != "reuse_detected" for record in family_records)
