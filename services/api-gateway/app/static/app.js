@@ -22,6 +22,7 @@ const state = {
   sessionActive: false,
   needs2fa: false,
   canManage2fa: false,
+  twoFactorEnabled: null,
   challengeId: null,
   formMode: "register",
   setupWindow: null,
@@ -57,13 +58,43 @@ function redactSensitive(payload) {
   return clone;
 }
 
+function safeResultText(value, isError) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return isError ? "Request failed." : "Request completed.";
+  }
+  if (isError) {
+    return value.message || "Request failed.";
+  }
+  if (Array.isArray(value.backup_codes)) {
+    return "2FA enabled.";
+  }
+  if (value.qr_png_base64) {
+    return "QR code created. Continue setup in the popup window.";
+  }
+  if (value.requires_2fa) {
+    return "2FA challenge created. Enter the authenticator code to continue.";
+  }
+  if (value.auth === "cookie" && value.status === "authenticated") {
+    return "Browser session is active.";
+  }
+  if (value.auth === "cookie" && value.status === "refreshed") {
+    return "Browser session restored.";
+  }
+  if (typeof value.message === "string" && value.message) {
+    return value.message;
+  }
+  if (value.status === "ok") {
+    return "Operation completed.";
+  }
+  return "Request completed.";
+}
+
 function setResult(value, isError) {
   const el = $("result");
-  if (typeof value === "string") {
-    el.textContent = value;
-  } else {
-    el.textContent = JSON.stringify(redactSensitive(value), null, 2);
-  }
+  el.textContent = safeResultText(value, isError);
   el.style.color = isError ? "var(--danger)" : "var(--text)";
 }
 
@@ -74,6 +105,7 @@ function hasActiveSession() {
 function setSessionActive(active) {
   state.sessionActive = active;
   state.canManage2fa = active;
+  state.twoFactorEnabled = null;
   refreshAccountState();
   refreshTwoFactorState();
 }
@@ -106,16 +138,26 @@ function setTwoFaStep(visible) {
 }
 
 function refreshTwoFactorState() {
-  const enabled = state.canManage2fa && hasActiveSession();
-  $("setup2faBtn").disabled = !enabled || state.loading;
-  $("disable2faPassword").disabled = !enabled || state.loading;
-  $("disable2faCode").disabled = !enabled || state.loading;
-  $("disable2faBackup").disabled = !enabled || state.loading;
-  $("disable2faBtn").disabled = !enabled || state.loading;
+  const active = state.canManage2fa && hasActiveSession();
+  const statusKnown = typeof state.twoFactorEnabled === "boolean";
+  const canEnable = active && statusKnown && state.twoFactorEnabled === false;
+  const canDisable = active && statusKnown && state.twoFactorEnabled === true;
+
+  $("setup2faRow").classList.toggle("hidden", active ? !canEnable : false);
+  $("disable2faSection").classList.toggle("hidden", !canDisable);
+
+  $("setup2faBtn").disabled = !canEnable || state.loading;
+  $("disable2faPassword").disabled = !canDisable || state.loading;
+  $("disable2faCode").disabled = !canDisable || state.loading;
+  $("disable2faBtn").disabled = !canDisable || state.loading;
   $("logoutBtn").disabled = !hasActiveSession() || state.loading;
-  $("setupNote").textContent = enabled
-    ? "Open setup, scan the QR, then confirm the authenticator code."
-    : "Sign in or create an account before managing 2FA.";
+  $("setupNote").textContent = !active
+    ? "Sign in or create an account before managing 2FA."
+    : !statusKnown
+      ? "Loading 2FA status..."
+      : canEnable
+        ? "2FA is off for this account. Open setup, scan the QR, then confirm the authenticator code."
+        : "2FA is on for this account. Use the form below to disable it.";
 }
 
 function formGuideText(mode) {
@@ -197,6 +239,48 @@ async function post(path, payload, options = {}) {
   return body;
 }
 
+async function get(path) {
+  const res = await fetch(baseUrl() + path, {
+    method: "GET",
+    credentials: "include",
+  });
+  const text = await res.text();
+  let body = text;
+  try {
+    body = JSON.parse(text);
+  } catch (_) {}
+  if (!res.ok) {
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      body.status = res.status;
+    } else {
+      body = { message: body || "Request failed.", status: res.status };
+    }
+    throw body;
+  }
+  return body;
+}
+
+async function syncSessionInfo() {
+  if (!hasActiveSession()) {
+    state.twoFactorEnabled = null;
+    refreshTwoFactorState();
+    return null;
+  }
+
+  state.twoFactorEnabled = null;
+  refreshTwoFactorState();
+  try {
+    const body = await get("/v1/sessions/me");
+    state.twoFactorEnabled = Boolean(body.two_factor_enabled);
+    refreshTwoFactorState();
+    return body;
+  } catch (_) {
+    state.twoFactorEnabled = null;
+    refreshTwoFactorState();
+    return null;
+  }
+}
+
 function handleAuthResponse(body) {
   if (body.challenge_id) state.challengeId = body.challenge_id;
   if (body.auth === "cookie" || body.status === "authenticated" || body.status === "refreshed") {
@@ -215,6 +299,7 @@ async function restoreBrowserSession() {
   try {
     const body = await post("/v1/tokens/refresh", {}, { csrf: true });
     handleAuthResponse(body);
+    await syncSessionInfo();
     setStatus("Session restored.", false);
     setResult(body, false);
   } catch (err) {
@@ -241,7 +326,7 @@ function ensureTotp(value) {
 }
 
 function openSetupWindow() {
-  const child = window.open("", "backendPlatform2faSetup", "popup,width=460,height=680");
+  const child = window.open("", "backendPlatform2faSetup", "popup,width=430,height=520");
   if (!child) {
     setStatus("Popup blocked. Allow popups and try again.", true);
     return null;
@@ -255,32 +340,123 @@ function openSetupWindow() {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Enable 2FA</title>
     <style>
-      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: #151515; color: #f1f1f1; }
-      main { width: min(390px, calc(100vw - 32px)); margin: 24px auto; }
-      h1 { font-size: 22px; margin: 0 0 8px; letter-spacing: 0; }
-      p { color: #b0b0b0; font-size: 13px; line-height: 1.5; }
-      .box { border: 1px solid #333; border-radius: 6px; padding: 14px; background: #202020; }
-      img { display: block; width: min(260px, 100%); height: auto; margin: 14px auto; background: white; border-radius: 6px; }
-      input, button, pre { width: 100%; box-sizing: border-box; border-radius: 6px; border: 1px solid #333; padding: 10px 12px; font: inherit; }
-      input, pre { background: #121212; color: #f1f1f1; }
-      button { margin-top: 12px; background: #6ee7a8; color: #07120b; border: 0; font-weight: 700; }
-      button:disabled { opacity: .55; }
-      pre { min-height: 90px; white-space: pre-wrap; font-size: 12px; }
-      .danger { color: #ff6b6b; }
-      .muted { color: #b0b0b0; }
+      :root {
+        color-scheme: dark;
+        --bg: #111111;
+        --panel: #171717;
+        --text: #f1f1f1;
+        --muted: #b8b8b8;
+        --border: #303030;
+        --accent: #6ee7a8;
+        --accent-2: #f7d774;
+        --danger: #ff6b6b;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; overflow: hidden; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      main {
+        min-height: 100%;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 12px;
+      }
+      .status {
+        min-height: 18px;
+        font-size: 13px;
+        color: var(--muted);
+        text-align: center;
+      }
+      .qr-shell {
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        padding: 12px;
+        display: grid;
+        place-items: center;
+        min-height: 310px;
+      }
+      .qr-frame {
+        width: min(280px, 100%);
+        aspect-ratio: 1;
+        border-radius: 8px;
+        background: white;
+        padding: 12px;
+        display: grid;
+        place-items: center;
+      }
+      .qr-frame img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .qr-placeholder {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .action-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+      }
+      input, button {
+        width: 100%;
+        box-sizing: border-box;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        padding: 11px 12px;
+        font: inherit;
+      }
+      input {
+        background: #121212;
+        color: var(--text);
+        min-width: 0;
+      }
+      button {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        color: #07120b;
+        border: 0;
+        font-weight: 700;
+        white-space: nowrap;
+        width: auto;
+        min-width: 138px;
+      }
+      button:disabled,
+      input:disabled {
+        opacity: .55;
+      }
+      .danger { color: var(--danger); }
+      .success { color: var(--accent); }
+      @media (max-width: 420px) {
+        html, body {
+          overflow: auto;
+        }
+        .action-row {
+          grid-template-columns: 1fr;
+        }
+        button {
+          width: 100%;
+        }
+      }
     </style>
   </head>
   <body>
     <main>
-      <h1>Enable 2FA</h1>
-      <p id="setupStatus" class="muted">Creating QR...</p>
-      <div class="box">
-        <div id="qrMount"></div>
-        <input id="popupTotpCode" autocomplete="off" placeholder="Authenticator code" />
+      <div id="qrMount" class="qr-shell">
+        <div class="qr-placeholder">QR code will appear here.</div>
+      </div>
+      <div class="action-row">
+        <input id="popupTotpCode" autocomplete="off" inputmode="numeric" placeholder="123456" />
         <button id="popupEnableBtn">Enable 2FA</button>
       </div>
-      <p>Backup codes are shown once after enabling.</p>
-      <pre id="popupResult"></pre>
+      <div id="setupStatus" class="status">Creating QR...</div>
     </main>
   </body>
 </html>`);
@@ -292,25 +468,34 @@ function openSetupWindow() {
 function updateSetupWindowQr(child, qrBase64) {
   const qrMount = child.document.getElementById("qrMount");
   const status = child.document.getElementById("setupStatus");
-  qrMount.innerHTML = `<img alt="Google Authenticator QR" src="data:image/png;base64,${qrBase64}" />`;
+  qrMount.innerHTML = `
+    <div class="qr-frame">
+      <img alt="Google Authenticator QR" src="data:image/png;base64,${qrBase64}" />
+    </div>
+  `;
   status.textContent = "Scan the QR, enter the code, then enable 2FA.";
-}
-
-function formatSetupWindowResult(value) {
-  if (value && Array.isArray(value.backup_codes)) {
-    return `Save these backup codes now:\n\n${value.backup_codes.join("\n")}`;
-  }
-  return typeof value === "string" ? value : JSON.stringify(redactSensitive(value), null, 2);
+  child.document.getElementById("popupTotpCode")?.focus();
 }
 
 function updateSetupWindowResult(value, isError) {
   const child = state.setupWindow;
   if (!child || child.closed) return;
-  const result = child.document.getElementById("popupResult");
   const status = child.document.getElementById("setupStatus");
-  result.textContent = formatSetupWindowResult(value);
-  status.textContent = isError ? "2FA setup failed." : "2FA enabled.";
+  const input = child.document.getElementById("popupTotpCode");
+  const button = child.document.getElementById("popupEnableBtn");
+  status.textContent = isError
+    ? (typeof value === "string" ? value : value?.message || "2FA setup failed.")
+    : "2FA enabled.";
   status.classList.toggle("danger", Boolean(isError));
+  status.classList.toggle("success", !isError);
+  if (input) {
+    input.disabled = !isError;
+    if (!isError) input.value = "";
+  }
+  if (button) {
+    button.disabled = !isError;
+    button.textContent = isError ? "Enable 2FA" : "Enabled";
+  }
 }
 
 window.completeTwoFactorEnable = async (code) => {
@@ -320,7 +505,9 @@ window.completeTwoFactorEnable = async (code) => {
     ensureSession();
     const totp = ensureTotp(code);
     const body = await post("/v1/two-factor/enable", { totp_code: totp }, { csrf: true });
-    setStatus("2FA enabled. Save your backup codes.", false);
+    state.twoFactorEnabled = true;
+    refreshTwoFactorState();
+    setStatus("2FA enabled.", false);
     setResult(body, false);
     updateSetupWindowResult(body, false);
   } catch (err) {
@@ -347,6 +534,7 @@ $("regBtn").addEventListener("click", async () => {
       password,
     });
     handleAuthResponse(body);
+    await syncSessionInfo();
     setTwoFaStep(false);
     $("regPassword").value = "";
     setStatus("Account created. Use Enable 2FA when ready.", false);
@@ -374,6 +562,7 @@ $("loginBtn").addEventListener("click", async () => {
       setTwoFaStep(true);
       setSessionActive(false);
     } else {
+      await syncSessionInfo();
       setStatus("Signed in.", false);
       setTwoFaStep(false);
     }
@@ -448,6 +637,7 @@ $("login2faBtn").addEventListener("click", async () => {
       backup_code: null,
     });
     handleAuthResponse(body);
+    await syncSessionInfo();
     setStatus("2FA verified.", false);
     setTwoFaStep(false);
     setResult(body, false);
@@ -474,10 +664,13 @@ $("setup2faBtn").addEventListener("click", async () => {
       updateSetupWindowQr(child, body.qr_png_base64);
     }
     const button = child.document.getElementById("popupEnableBtn");
-    button.addEventListener("click", () => {
-      const code = child.document.getElementById("popupTotpCode").value;
-      window.completeTwoFactorEnable(code);
-    });
+    const input = child.document.getElementById("popupTotpCode");
+    button.onclick = () => window.completeTwoFactorEnable(input.value);
+    input.onkeydown = (event) => {
+      if (event.key !== "Enter" || button.disabled) return;
+      event.preventDefault();
+      button.click();
+    };
     setStatus("QR opened in a new window.", false);
     setResult(body, false);
   } catch (err) {
@@ -497,29 +690,29 @@ $("disable2faBtn").addEventListener("click", async () => {
     ensureSession();
     const password = $("disable2faPassword").value;
     const code = $("disable2faCode").value.trim();
-    const backup = $("disable2faBackup").value.trim();
     if (!password) {
       setStatus("Password is required to disable 2FA.", true);
       return;
     }
-    if (Boolean(code) === Boolean(backup)) {
-      setStatus("Provide either authenticator code or backup code.", true);
+    if (!code) {
+      setStatus("Authenticator code is required to disable 2FA.", true);
       return;
     }
     const body = await post(
       "/v1/two-factor/disable",
       {
         password,
-        totp_code: code || null,
-        backup_code: backup || null,
+        totp_code: code,
+        backup_code: null,
       },
       { csrf: true },
     );
+    state.twoFactorEnabled = false;
+    refreshTwoFactorState();
     setStatus("2FA disabled.", false);
     setResult(body, false);
     $("disable2faPassword").value = "";
     $("disable2faCode").value = "";
-    $("disable2faBackup").value = "";
   } catch (err) {
     setStatus(err.message || "Disable 2FA failed.", true);
     setResult(err, true);
@@ -558,7 +751,7 @@ bindEnter(["loginEmail", "loginPassword"], "loginBtn", () => !$("formLogin").cla
 bindEnter(["resetEmail"], "resetRequestBtn", () => !$("formReset").classList.contains("hidden"));
 bindEnter(["resetCode", "resetPassword"], "resetConfirmBtn", () => !$("formReset").classList.contains("hidden"));
 bindEnter(["totpCode"], "login2faBtn", () => !$("twoFaStep").classList.contains("hidden"));
-bindEnter(["disable2faPassword", "disable2faCode", "disable2faBackup"], "disable2faBtn");
+bindEnter(["disable2faPassword", "disable2faCode"], "disable2faBtn");
 
 window.addEventListener("load", () => {
   setTimeout(() => {
@@ -574,7 +767,6 @@ window.addEventListener("load", () => {
       "totpCode",
       "disable2faPassword",
       "disable2faCode",
-      "disable2faBackup",
     ].forEach((id) => {
       const el = $(id);
       if (el) el.value = "";

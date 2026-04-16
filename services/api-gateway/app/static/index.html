@@ -98,25 +98,23 @@
         <div class="note" id="setupNote">
           Sign in or create an account to enable 2FA.
         </div>
-        <div class="row">
+        <div id="setup2faRow" class="row">
           <button id="setup2faBtn" class="btn btn--ghost" disabled>Enable 2FA</button>
         </div>
-        <div class="divider"></div>
-        <div class="subsection-title">Disable 2FA</div>
-        <div class="row">
-          <label>Password</label>
-          <input id="disable2faPassword" type="password" autocomplete="current-password" placeholder="Current password" />
-        </div>
-        <div class="row">
-          <label>Authenticator code</label>
-          <input id="disable2faCode" autocomplete="off" placeholder="123456" />
-        </div>
-        <div class="row">
-          <label>Backup code</label>
-          <input id="disable2faBackup" autocomplete="off" placeholder="ABCD-2345" />
-        </div>
-        <div class="row">
-          <button id="disable2faBtn" class="btn btn--ghost">Disable 2FA</button>
+        <div id="disable2faSection" class="hidden">
+          <div class="divider"></div>
+          <div class="subsection-title">Disable 2FA</div>
+          <div class="row">
+            <label>Password</label>
+            <input id="disable2faPassword" type="password" autocomplete="current-password" placeholder="Current password" />
+          </div>
+          <div class="row">
+            <label>Authenticator code</label>
+            <input id="disable2faCode" autocomplete="off" placeholder="123456" />
+          </div>
+          <div class="row">
+            <button id="disable2faBtn" class="btn btn--ghost">Disable 2FA</button>
+          </div>
         </div>
         <div class="divider"></div>
         <div class="row">
@@ -129,6 +127,6 @@
       </aside>
     </main>
 
-    <script src="./app.js?v=20260416-cookie-auth-2fa"></script>
+    <script src="./app.js?v=20260416-qr-popup-clean"></script>
   </body>
 </html>
