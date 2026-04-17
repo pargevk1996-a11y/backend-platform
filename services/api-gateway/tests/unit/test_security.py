@@ -15,12 +15,15 @@ from app.core.security import (
     get_client_ip,
     is_public_endpoint,
     is_session_endpoint,
+    refresh_idle_cookies,
     requires_csrf_protection,
     validate_csrf,
 )
 from app.exceptions.gateway import ForbiddenException, UnauthorizedException
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import Request
+from starlette.responses import Response
 
 
 def _generate_rsa_keypair() -> tuple[str, str]:
@@ -186,6 +189,32 @@ def test_csrf_rejects_mismatched_header() -> None:
 
     with pytest.raises(ForbiddenException):
         validate_csrf(request, settings=settings)
+
+
+def test_refresh_idle_cookies_reissues_short_lived_refresh_cookie() -> None:
+    settings = get_settings()
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/v1/users/me",
+        "headers": [
+            (
+                b"cookie",
+                (
+                    f"{settings.refresh_cookie_name}=refresh-token; "
+                    f"{settings.csrf_cookie_name}=csrf-token"
+                ).encode(),
+            )
+        ],
+    }
+    request = Request(scope)
+    response = Response()
+
+    refresh_idle_cookies(response, request=request, settings=settings)
+
+    set_cookie_headers = response.headers.getlist("set-cookie")
+    assert any(settings.refresh_cookie_name in header for header in set_cookie_headers)
+    assert any("Max-Age=1800" in header for header in set_cookie_headers)
 
 
 def test_client_ip_ignores_untrusted_forwarded_header() -> None:

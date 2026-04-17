@@ -162,21 +162,64 @@ def apply_token_cookies(
         key=settings.access_cookie_name,
         value=access_token,
         httponly=True,
-        max_age=max(1, access_ttl_seconds),
+        max_age=max(1, min(access_ttl_seconds, settings.session_idle_timeout_seconds)),
         **cookie_kwargs,
     )
     response.set_cookie(
         key=settings.refresh_cookie_name,
         value=refresh_token,
         httponly=True,
-        max_age=max(1, settings.refresh_cookie_ttl_seconds),
+        max_age=max(
+            1,
+            min(settings.refresh_cookie_ttl_seconds, settings.session_idle_timeout_seconds),
+        ),
         **cookie_kwargs,
     )
     response.set_cookie(
         key=settings.csrf_cookie_name,
         value=csrf_token,
         httponly=False,
-        max_age=max(1, settings.refresh_cookie_ttl_seconds),
+        max_age=max(
+            1,
+            min(settings.refresh_cookie_ttl_seconds, settings.session_idle_timeout_seconds),
+        ),
+        **cookie_kwargs,
+    )
+
+
+def refresh_idle_cookies(
+    response: Response,
+    *,
+    request: Request,
+    settings: Settings,
+) -> None:
+    refresh_token = request.cookies.get(settings.refresh_cookie_name, "").strip()
+    csrf_token = request.cookies.get(settings.csrf_cookie_name, "").strip()
+    if not refresh_token or not csrf_token:
+        return
+
+    cookie_kwargs = {
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "domain": settings.cookie_domain,
+        "path": settings.cookie_path,
+    }
+    idle_max_age = max(
+        1,
+        min(settings.refresh_cookie_ttl_seconds, settings.session_idle_timeout_seconds),
+    )
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        max_age=idle_max_age,
+        **cookie_kwargs,
+    )
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=csrf_token,
+        httponly=False,
+        max_age=idle_max_age,
         **cookie_kwargs,
     )
 

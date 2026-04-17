@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     cookie_domain: str | None = None
     cookie_path: str = "/"
     refresh_cookie_ttl_seconds: int = 60 * 60 * 24 * 30
+    session_idle_timeout_seconds: int = 1800
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

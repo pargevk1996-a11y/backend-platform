@@ -24,6 +24,7 @@ from app.core.security import (
     is_public_endpoint,
     is_session_endpoint,
     issue_csrf_token,
+    refresh_idle_cookies,
 )
 from app.services.routing_service import RoutingService
 
@@ -207,6 +208,9 @@ async def proxy_request(
                 access_ttl_seconds=expires_in,
                 csrf_token=issue_csrf_token(),
             )
+
+    if proxied.status_code < 400 and not is_public and not is_session:
+        refresh_idle_cookies(response, request=request, settings=settings)
 
     if (method, path) == ("POST", "/v1/tokens/revoke") and proxied.status_code < 400:
         clear_token_cookies(response, settings=settings)
