@@ -1,178 +1,387 @@
-🚀 Backend Platform
+<div align="center">
 
-Security-first backend platform built with production-grade architecture, strict security policies, and real-world engineering practices.
+<img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+<img src="https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
+<img src="https://img.shields.io/badge/PostgreSQL-15+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" />
+<img src="https://img.shields.io/badge/Redis-7+-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
+<img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
+<img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
 
-<img width="1536" height="1024" alt="0e3377be-6476-4c80-9297-4eb35f0cefd3" src="https://github.com/user-attachments/assets/02fa5671-13ab-4d26-bd54-94cae69fa6f3" />
+# 🔐 backend-platform
 
-🧠 Overview
+**Production-grade microservices backend platform**  
+FastAPI · JWT · TOTP 2FA · PostgreSQL · Redis · Rate Limiting · RBAC
 
-Backend Platform is a microservice-based system designed not just to work — but to be secure, scalable, and production-ready by design.
+</div>
 
-Instead of building a monolithic API, the system separates responsibilities across services and enforces security and reliability at every layer:
+---
 
-   Token safety (no exposure to browser)
-   Cookie-based session handling
-   Strong authentication flows (JWT + TOTP 2FA)
-   Rate limiting and brute-force protection
-   Audit logging and security policies
-   CI/CD guardrails and container hardening
+## 📋 Table of Contents
 
-This project is not about quantity of endpoints — it's about quality of architecture.
+- [Overview](#-overview)
+- [Architecture](#-architecture)
+- [Services](#-services)
+- [Tech Stack](#-tech-stack)
+- [Getting Started](#-getting-started)
+- [Configuration](#-configuration)
+- [API Reference](#-api-reference)
+- [Testing](#-testing)
+- [Development](#-development)
+- [Security Model](#-security-model)
+- [Project Structure](#-project-structure)
 
-<img width="1536" height="1024" alt="dc6fc0ef-9cce-4270-a16f-54de62db951e" src="https://github.com/user-attachments/assets/7e6e807c-d699-488d-9641-b4b9c28ac4be" />
+---
 
-🏗 Architecture
+## 🧭 Overview
 
-The platform follows a microservice + layered architecture:
+`backend-platform` is a **security-first, production-ready microservices backend** built in Python 3.12+. It implements a full authentication and user management system with:
 
-Client → API Gateway → Services → Database
-   Core Services
-🔐 Auth Service
-   Registration / Login
-   JWT (access + refresh)
-   TOTP 2FA (Google Authenticator)
-   Refresh rotation & revoke
-   Password reset
-   Account lock & audit
-👤 User Service
-   User profiles
-   Roles & permissions (RBAC)
-   Authorization context
-🌐 API Gateway
-   Single entry point
-   Cookie-based auth (HttpOnly)
-   CSRF protection
-   Token orchestration
-   Secure routing
-🔔 Notification Service (WIP)
-   Prepared for async delivery system
-📦 Shared Package
-   Internal contracts & utilities
+- **JWT access/refresh token rotation** with revocation support
+- **TOTP-based 2FA** (Google Authenticator compatible)
+- **Role-Based Access Control (RBAC)** with audit events
+- **API Gateway** with JWT verification and per-client rate limiting
+- **Argon2** password hashing
+- **Async-first** architecture throughout
 
-<img width="1536" height="1024" alt="550b8e16-0421-4666-9958-54c6215faaa9" src="https://github.com/user-attachments/assets/97609f49-d529-42a1-a082-9d6ad5712dbe" />
+> Designed as a secure, extensible foundation for any product that requires enterprise-grade auth and user management.
 
-🔐 Security Highlights
+---
 
-This project is built with a security-first mindset:
+## 🏗 Architecture
 
-✅ HttpOnly cookies instead of exposing tokens to browser
-✅ CSRF protection for state-changing requests
-✅ JWT validation (iss, aud, exp, nbf)
-✅ Refresh token rotation with reuse protection
-✅ Brute-force detection + persistent account lock
-✅ Privacy-safe Redis keys (HMAC-based)
-✅ Secure headers (CSP, X-Frame-Options, etc.)
-✅ Cache-Control: no-store for sensitive endpoints
-❌ No python-jose (blocked by policy)
-❌ No weak JWT algorithms in production
+```
+                         ┌─────────────────────────────┐
+                         │         Client / Browser     │
+                         └──────────────┬──────────────┘
+                                        │ HTTPS
+                         ┌──────────────▼──────────────┐
+                         │         API Gateway          │
+                         │  :8000  JWT verify + rate    │
+                         │         limiting             │
+                         └───────┬───────────┬──────────┘
+                                 │           │
+               ┌─────────────────▼──┐   ┌───▼──────────────────┐
+               │    Auth Service    │   │    User Service       │
+               │  :8001  JWT, TOTP  │   │  :8002  RBAC, audit   │
+               │  refresh rotation  │   │  profiles             │
+               └────────┬───────────┘   └────────┬─────────────┘
+                        │                        │
+               ┌────────▼───────────────────────▼─────────────┐
+               │              PostgreSQL (shared)              │
+               └───────────────────────────────────────────────┘
+                        │
+               ┌────────▼──────────┐
+               │  Redis             │
+               │  token revocation  │
+               │  rate limit state  │
+               └────────────────────┘
+```
 
-<img width="1536" height="1024" alt="0aa68561-bfaf-49f0-a7ae-c836199e1e35" src="https://github.com/user-attachments/assets/d6a7dc9a-6e1d-46fc-a041-57f855392561" />
+---
 
-⚙️ Tech Stack
+## 🧩 Services
 
-Backend
+### `services/auth-service` — Authentication
+Handles the full auth lifecycle: registration, login, token issuance, refresh rotation, token revocation, and TOTP 2FA enrollment/verification.
 
-   FastAPI
-   SQLAlchemy
-   PostgreSQL
-   Redis
+| Responsibility | Details |
+|---|---|
+| Password hashing | Argon2id |
+| Token format | JWT (PyJWT), RS256 or HS256 |
+| Refresh token rotation | One-time-use, stored in Redis |
+| 2FA | TOTP via `pyotp`, compatible with Google Authenticator |
+| Revocation | Token blocklist in Redis |
 
-Security
+---
 
-   JWT (RS256)  
-   Argon2 hashing
-   TOTP (Google Authenticator)
+### `services/user-service` — User Management & RBAC
+Manages user profiles, roles, permissions, and produces audit events for all significant actions.
 
-Infrastructure
+| Responsibility | Details |
+|---|---|
+| Profiles | CRUD, avatar, preferences |
+| RBAC | Roles → Permissions model |
+| Audit | Immutable event log per user action |
 
-   Docker (multi-stage builds)
-   Docker Compose (dev + prod)
-   GitHub Actions (CI + Security + Build)
+---
 
-<img width="1536" height="1024" alt="b0798e8b-57ef-4709-9a6f-6abc8b585a6c" src="https://github.com/user-attachments/assets/e20ef06b-039a-46f3-aabf-bca56ceccb54" />
+### `services/api-gateway` — Edge Gateway
+Single entry point for all inbound traffic. Verifies JWT signatures, enforces rate limits, and proxies requests to internal services.
 
-📂 Project Structure
-services/
-  auth-service/
-  user-service/
-  api-gateway/
-  notification-service/
+| Responsibility | Details |
+|---|---|
+| JWT verification | Validates access tokens before proxying |
+| Rate limiting | Per-client, backed by Redis |
+| Health checks | `/v1/health/live`, `/v1/health/ready` |
 
-shared/
-  python/
+---
 
-infra/
-  compose/
-  scripts/
+### `shared/python` — Shared Contracts & Utilities
+Internal library with Pydantic schemas, domain contracts, and helpers shared across all services. Published as an editable workspace package.
 
-Inside each service:
+---
 
-   api/           → routes
-   services/      → business logic
-   repositories/  → DB access
-   models/        → ORM models
-   schemas/       → validation
-   core/          → config & security
+## 🛠 Tech Stack
 
-🔄 Auth Flow (Browser)
+| Layer | Technology |
+|---|---|
+| **Runtime** | Python 3.12+ |
+| **Web framework** | FastAPI (async) |
+| **ORM** | SQLAlchemy 2.x (async) |
+| **Migrations** | Alembic |
+| **Database** | PostgreSQL 15+ |
+| **Cache / State** | Redis 7+ |
+| **Auth tokens** | PyJWT |
+| **Password hashing** | Argon2-cffi |
+| **2FA** | pyotp (TOTP / RFC 6238) |
+| **Package manager** | uv (workspace) |
+| **Linter / Formatter** | Ruff |
+| **Type checker** | mypy (strict) |
+| **Test runner** | pytest-asyncio |
+| **Containerization** | Docker + Docker Compose |
 
-The browser never sees raw tokens:
-   1. Login/Register request → Gateway
-   2. Gateway stores tokens in HttpOnly cookies
-   3. Browser receives only safe JSON response
-   4. Protected requests use cookies automatically
-   5. CSRF token required for state-changing operations
+---
 
-<img width="1536" height="1024" alt="f4629589-0bb0-493f-9f69-a6ac16836d91" src="https://github.com/user-attachments/assets/b4f36e23-928a-41fd-9978-b387bc93762d" />
+## 🚀 Getting Started
 
-🚀 Local Setup
-   make deps
-   infra/scripts/bootstrap.sh
-   make up
-   make migrate-auth
-   make migrate-user
+### Prerequisites
 
-Open UI:
+- Docker & Docker Compose
+- Python 3.12+
+- `make`
 
-http://localhost:8000/ui
+### Quickstart (Docker — recommended)
 
-Health check:
+```bash
+# 1. Clone the repo
+git clone https://github.com/pargevk1996-a11y/backend-platform.git
+cd backend-platform
 
-curl http://localhost:8000/v1/health/ready
-🧪 Testing
-   Unit tests
-   Integration tests
-   Security tests
-   End-to-end (full docker stack)
-      make test
-      make test-e2e
+# 2. Install Python dependencies into .venv
+make deps
 
-<img width="1536" height="1024" alt="d574e81f-9ecf-4a8d-9a33-3264f40946d9" src="https://github.com/user-attachments/assets/72185e28-7282-4b6f-89be-e09cf018a57c" />
+# 3. Bootstrap env files (generates strong secrets automatically)
+bash infra/scripts/bootstrap.sh
 
-🐳 Production Features
-   Non-root containers
-   Read-only filesystem
-   Dropped Linux capabilities
-   Isolated networks
-   Secure environment validation
+# 4. Start the full dev stack
+make up
 
-<img width="1536" height="1024" alt="d574e81f-9ecf-4a8d-9a33-3264f40946d9" src="https://github.com/user-attachments/assets/fb1e10d1-cfe0-4c2d-aa2a-3b6e9e76a561" />
+# 5. Apply database migrations
+make migrate-auth
+make migrate-user
+```
 
-📊 CI / Security
+Services will be available at:
 
-Automated pipelines include:
+| Service | URL |
+|---|---|
+| API Gateway | `http://localhost:8000` |
+| Auth Service (direct) | `http://localhost:8001` |
+| User Service (direct) | `http://localhost:8002` |
 
-✔ Code validation
-✔ Tests
-✔ Security scans (Bandit, Trivy)
-✔ Policy checks (no insecure libs)
-✔ Docker image scanning
+### Run services locally (without Docker)
 
-<img width="1536" height="1024" alt="8d0ec14d-06e0-4de5-a9ee-b4e122882e7e" src="https://github.com/user-attachments/assets/bb2b1fd5-eea1-4e46-a8ea-7fe5ff9a4e05" />
+```bash
+make run-auth      # http://localhost:8001
+make run-user      # http://localhost:8002
+make run-gateway   # http://localhost:8000
+```
 
-📈 Future Improvements
-OpenTelemetry (tracing + metrics)
-Event-driven communication
-Notification delivery system
+---
 
-[Запись экрана от 2026-04-16 17-01-04.webm](https://github.com/user-attachments/assets/858c6c34-5151-465c-9823-7dab76446a13)
+## ⚙️ Configuration
+
+Bootstrap generates all secrets automatically:
+
+```bash
+bash infra/scripts/bootstrap.sh
+```
+
+This creates (or regenerates if insecure values are detected):
+
+```
+services/auth-service/.env
+services/user-service/.env
+services/api-gateway/.env
+infra/compose/.env.compose
+```
+
+> ⚠️ **Never commit `.env` files.** They are `.gitignore`d by default.  
+> The bootstrap script detects legacy insecure DSNs and replaces them automatically.
+
+Key variables set per service:
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Async PostgreSQL DSN |
+| `REDIS_URL` | Redis connection string with auth |
+| `JWT_SECRET` / `JWT_PRIVATE_KEY` | Token signing material |
+| `TOTP_ISSUER` | 2FA issuer name shown in authenticator apps |
+
+---
+
+## 📡 API Reference
+
+All services expose interactive OpenAPI docs at `/docs` (Swagger UI) and `/redoc`.
+
+### Health Endpoints (all services)
+
+```
+GET /v1/health/live    → 200 OK  (liveness)
+GET /v1/health/ready   → 200 OK  (readiness — checks DB + Redis)
+```
+
+### Auth Service — Key Endpoints
+
+```
+POST /v1/auth/register        Register a new user
+POST /v1/auth/login           Login, receive access + refresh tokens
+POST /v1/auth/refresh         Rotate refresh token
+POST /v1/auth/logout          Revoke current tokens
+POST /v1/auth/2fa/enroll      Begin TOTP enrollment, returns QR secret
+POST /v1/auth/2fa/verify      Complete TOTP enrollment
+POST /v1/auth/2fa/validate    Validate TOTP code on login
+```
+
+### User Service — Key Endpoints
+
+```
+GET    /v1/users/me           Get current user profile
+PATCH  /v1/users/me           Update profile
+GET    /v1/users/{id}         Get user by ID (admin / self)
+GET    /v1/users/{id}/audit   Fetch audit log for user
+```
+
+---
+
+## 🧪 Testing
+
+```bash
+# Run all unit tests (all services)
+make test
+
+# Per-service unit tests
+make test-auth
+make test-user
+make test-gateway
+
+# End-to-end: gateway auth security flow (stack must be running)
+make test-e2e-auth
+
+# Full automated e2e with Docker stack spin-up and teardown
+make test-e2e-stack
+```
+
+Tests use `pytest-asyncio` in auto mode. All async fixtures use function-scoped event loops by default.
+
+E2E tests are marked with `@pytest.mark.e2e` and are excluded from the default unit test run.
+
+---
+
+## 🧑‍💻 Development
+
+```bash
+# Lint each service
+make lint-auth
+make lint-user
+make lint-gateway
+
+# Stop the dev stack
+make down
+
+# Full list of available targets
+make help
+```
+
+### Code Quality Standards
+
+| Tool | Configuration |
+|---|---|
+| `ruff` | line-length 100, Python 3.12 target, enabled: E, F, I, UP, B, A, S, N, ASYNC, C4, PIE |
+| `mypy` | strict mode, `warn_unused_ignores`, `disallow_any_generics` |
+
+---
+
+## 🔒 Security Model
+
+```
+┌──────────────────────────────────────────────────┐
+│  Access Token (short-lived JWT)                  │
+│  → Verified at Gateway, never stored server-side │
+├──────────────────────────────────────────────────┤
+│  Refresh Token (one-time-use)                    │
+│  → Stored in Redis, invalidated on use           │
+│  → Rotation: old token revoked, new one issued   │
+├──────────────────────────────────────────────────┤
+│  TOTP 2FA                                        │
+│  → RFC 6238, 30-second window                    │
+│  → QR code enrollment compatible with any        │
+│    standard authenticator app                    │
+├──────────────────────────────────────────────────┤
+│  Passwords                                       │
+│  → Argon2id, never stored in plaintext           │
+├──────────────────────────────────────────────────┤
+│  Rate Limiting                                   │
+│  → Per-client, enforced at gateway               │
+│  → State stored in Redis                         │
+└──────────────────────────────────────────────────┘
+```
+
+---
+
+## 📁 Project Structure
+
+```
+backend-platform/
+├── .github/
+│   └── workflows/          # CI/CD pipelines
+├── docs/                   # Architecture diagrams, ADRs
+├── infra/
+│   ├── compose/            # Docker Compose dev stack
+│   └── scripts/            # bootstrap.sh, e2e runner
+├── services/
+│   ├── auth-service/       # FastAPI auth app
+│   │   ├── app/
+│   │   │   ├── api/        # Route handlers
+│   │   │   ├── core/       # Config, security, constants
+│   │   │   ├── models/     # SQLAlchemy ORM models
+│   │   │   ├── schemas/    # Pydantic request/response models
+│   │   │   └── services/   # Business logic
+│   │   ├── migrations/     # Alembic migrations
+│   │   └── tests/
+│   ├── user-service/       # FastAPI user/RBAC app
+│   └── api-gateway/        # FastAPI edge gateway
+├── shared/
+│   └── python/
+│       └── src/shared/     # Shared contracts, utilities
+├── tests/
+│   └── e2e/                # Cross-service e2e test suite
+├── conftest.py             # Root pytest config
+├── pyproject.toml          # Workspace config, ruff, mypy, pytest
+└── Makefile                # All developer commands
+```
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feat/your-feature`
+3. Make your changes, add tests
+4. Run linting: `make lint-auth lint-user lint-gateway`
+5. Run tests: `make test`
+6. Open a Pull Request
+
+Please follow the existing code style — `ruff` and `mypy --strict` must pass with zero errors.
+
+---
+
+## 📄 License
+
+MIT © [pargevk1996-a11y](https://github.com/pargevk1996-a11y)
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ using FastAPI, PostgreSQL, Redis, and a security-first mindset.</sub>
+</div>
