@@ -25,15 +25,23 @@ async def test_hop_by_hop_headers_are_removed() -> None:
                 "X-Real-IP": "203.0.113.11",
                 "Authorization": "Bearer token",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
+                "X-Request-ID": "req-1",
+                "X-CSRF-Token": "csrf",
+                "Cookie": "bad=1",
             }
         )
 
         assert "Authorization" in sanitized
         assert "Content-Type" in sanitized
+        assert "Accept" in sanitized
+        assert "X-Request-ID" in sanitized
+        assert "X-CSRF-Token" in sanitized
         assert "Host" not in sanitized
         assert "Connection" not in sanitized
         assert "X-Forwarded-For" not in sanitized
         assert "X-Real-IP" not in sanitized
+        assert "Cookie" not in sanitized
 
 
 @pytest.mark.asyncio

@@ -87,6 +87,7 @@ async def test_two_factor_setup_enable_and_backup_login() -> None:
     generated = await service.enable(None, user=user, totp_code=current_code)
     assert user.two_factor_enabled is True
     assert len(generated.plain_codes) == 10
+    assert all(len(code) == 30 for code in generated.plain_codes)
 
     backup_code = generated.plain_codes[0]
     await service.verify_for_login(None, user=user, totp_code=None, backup_code=backup_code)

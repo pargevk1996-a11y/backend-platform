@@ -29,6 +29,22 @@ async def test_route_resolution() -> None:
 
 
 @pytest.mark.asyncio
+async def test_route_resolution_uses_strict_prefixes() -> None:
+    async with httpx.AsyncClient() as client:
+        routing = RoutingService(
+            auth_client=AuthClient(base_url="http://auth-service:8001", http_client=client),
+            user_client=UserClient(base_url="http://user-service:8002", http_client=client),
+            notification_client=NotificationClient(base_url=None, http_client=client),
+        )
+
+        with pytest.raises(RouteNotFoundException):
+            routing.resolve_service("/v1/authentication/login")
+
+        with pytest.raises(RouteNotFoundException):
+            routing.resolve_service("/v1/usersettings")
+
+
+@pytest.mark.asyncio
 async def test_notification_route_is_enabled_when_configured() -> None:
     async with httpx.AsyncClient() as client:
         routing = RoutingService(

@@ -156,7 +156,15 @@ class RefreshTokenService:
             jti=new_jti,
         )
 
-        await self.repository.mark_rotated(session, token=token_record, replaced_by_jti=new_jti)
+        rotated = await self.repository.mark_rotated(
+            session,
+            token=token_record,
+            replaced_by_jti=new_jti,
+        )
+        if not rotated:
+            await self.repository.revoke_family(session, family_id, "reuse_detected")
+            await self.session_service.revoke_family(session, family_id)
+            raise TokenReuseDetectedException(session_id=session_id, family_id=family_id)
         await self.repository.create(
             session,
             user_id=user_id,

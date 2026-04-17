@@ -200,9 +200,11 @@ class TwoFactorService:
     @staticmethod
     def _generate_plain_backup_codes(count: int) -> list[str]:
         alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        segment_lengths = (5, 5, 5, 5, 6)
         return [
-            "".join(secrets.choice(alphabet) for _ in range(4))
-            + "-"
-            + "".join(secrets.choice(alphabet) for _ in range(4))
+            "-".join(
+                "".join(secrets.choice(alphabet) for _ in range(segment_length))
+                for segment_length in segment_lengths
+            )
             for _ in range(count)
         ]
