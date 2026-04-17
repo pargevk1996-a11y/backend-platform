@@ -77,6 +77,12 @@ class FakeSessionService:
     async def touch_family(self, session, refresh_family_id: UUID):
         _ = refresh_family_id
 
+    async def touch_session_activity(self, session, *, session_id: UUID, idle_timeout_seconds: int):
+        _ = (session, idle_timeout_seconds)
+        if session_id != self.session_id:
+            return None
+        return SimpleNamespace(id=session_id, refresh_family_id=next(iter(self.active_families)))
+
     async def is_family_active(self, session, refresh_family_id: UUID) -> bool:
         _ = session
         return refresh_family_id in self.active_families

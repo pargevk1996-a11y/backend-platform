@@ -143,6 +143,14 @@ class RefreshTokenService:
         if token_record.expires_at < now:
             raise InvalidTokenException("Refresh token expired")
 
+        active_session = await self.session_service.touch_session_activity(
+            session,
+            session_id=session_id,
+            idle_timeout_seconds=self.settings.session_idle_timeout_seconds,
+        )
+        if active_session is None:
+            raise InvalidTokenException("Session expired due to inactivity")
+
         if token_record.revoked_at is not None or token_record.rotated_at is not None:
             await self.repository.revoke_family(session, family_id, "reuse_detected")
             await self.session_service.revoke_family(session, family_id)
@@ -176,7 +184,6 @@ class RefreshTokenService:
             ip_address=ip_address,
             user_agent=user_agent,
         )
-        await self.session_service.touch_family(session, family_id)
 
         access_token, access_expires_in = self.jwt_service.issue_access_token(
             subject=user_id,

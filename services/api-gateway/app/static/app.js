@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ACCOUNT_CONTROL_IDS = [
   "chooseRegister",
   "chooseLogin",
@@ -24,6 +25,7 @@ const state = {
   challengeId: null,
   formMode: "register",
   qrReady: false,
+  idleTimerId: null,
 };
 
 function baseUrl() {
@@ -156,6 +158,7 @@ function getCsrfToken() {
 
 function setSessionActive(active) {
   state.sessionActive = Boolean(active);
+  scheduleIdleTimeout();
   refreshAccountState();
   refreshSetupState();
 }
@@ -166,6 +169,41 @@ function clearSession() {
   setTwoFaStep(false);
   setSetupEnabled(false);
   resetQr();
+}
+
+function clearIdleTimeout() {
+  if (state.idleTimerId) {
+    window.clearTimeout(state.idleTimerId);
+    state.idleTimerId = null;
+  }
+}
+
+function scheduleIdleTimeout() {
+  clearIdleTimeout();
+  if (!hasActiveSession()) return;
+  state.idleTimerId = window.setTimeout(() => {
+    void signOutForInactivity();
+  }, IDLE_TIMEOUT_MS);
+}
+
+function noteUserActivity() {
+  if (!hasActiveSession()) return;
+  scheduleIdleTimeout();
+}
+
+async function signOutForInactivity() {
+  if (!hasActiveSession()) return;
+  setLoading(true);
+  try {
+    await post("/v1/tokens/revoke", { revoke_family: true });
+  } catch (_) {
+    // Best-effort server revoke. Client session still must end immediately.
+  } finally {
+    clearSession();
+    setLoading(false);
+    setStatus("Signed out after 30 minutes of inactivity.", true);
+    setResult({ status: "session_expired", reason: "inactive_30_minutes" }, true);
+  }
 }
 
 async function post(path, payload) {
@@ -248,6 +286,7 @@ function ensureTotp(value) {
 }
 
 $("regBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Registering...", false);
   setResult("Registering...", false);
@@ -276,6 +315,7 @@ $("regBtn").addEventListener("click", async () => {
 });
 
 $("loginBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Signing in...", false);
   setResult("Signing in...", false);
@@ -305,6 +345,7 @@ $("loginBtn").addEventListener("click", async () => {
 });
 
 $("resetRequestBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Sending reset email...", false);
   setResult("Sending reset email...", false);
@@ -326,6 +367,7 @@ $("resetRequestBtn").addEventListener("click", async () => {
 });
 
 $("resetConfirmBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Resetting password...", false);
   setResult("Resetting password...", false);
@@ -359,6 +401,7 @@ $("resetConfirmBtn").addEventListener("click", async () => {
 });
 
 $("login2faBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Verifying 2FA...", false);
   setResult("Verifying 2FA...", false);
@@ -384,6 +427,7 @@ $("login2faBtn").addEventListener("click", async () => {
 });
 
 $("setup2faBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Creating Google Authenticator QR...", false);
   setResult("Creating Google Authenticator QR...", false);
@@ -411,6 +455,7 @@ $("setup2faBtn").addEventListener("click", async () => {
 });
 
 $("enable2faBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Enabling 2FA...", false);
   setResult("Enabling 2FA...", false);
@@ -434,6 +479,7 @@ $("enable2faBtn").addEventListener("click", async () => {
 });
 
 $("logoutBtn").addEventListener("click", async () => {
+  noteUserActivity();
   setLoading(true);
   setStatus("Signing out...", false);
   setResult("Signing out...", false);
@@ -469,6 +515,10 @@ bindEnter(["resetEmail"], "resetRequestBtn", () => !$("formReset").classList.con
 bindEnter(["resetCode", "resetPassword"], "resetConfirmBtn", () => !$("formReset").classList.contains("hidden"));
 bindEnter(["totpCode"], "login2faBtn", () => !$("twoFaStep").classList.contains("hidden"));
 bindEnter(["enableTotpCode"], "enable2faBtn");
+
+["click", "keydown", "mousemove", "scroll", "touchstart"].forEach((eventName) => {
+  window.addEventListener(eventName, noteUserActivity, { passive: true });
+});
 
 window.addEventListener("load", () => {
   setTimeout(() => {

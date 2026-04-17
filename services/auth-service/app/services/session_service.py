@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,26 @@ class SessionService:
 
     async def touch_family(self, session: AsyncSession, refresh_family_id: UUID) -> None:
         await self.repository.touch_family(session, refresh_family_id)
+
+    async def touch_session_activity(
+        self,
+        session: AsyncSession,
+        *,
+        session_id: UUID,
+        idle_timeout_seconds: int,
+    ) -> UserSession | None:
+        user_session = await self.repository.get_by_id_for_update(session, session_id)
+        if user_session is None:
+            return None
+
+        now = datetime.now(tz=UTC)
+        idle_threshold = now - timedelta(seconds=idle_timeout_seconds)
+        if user_session.last_seen_at < idle_threshold:
+            await self.repository.revoke_family(session, user_session.refresh_family_id)
+            return None
+
+        await self.repository.touch_session(session, user_session=user_session, seen_at=now)
+        return user_session
 
     async def is_family_active(self, session: AsyncSession, refresh_family_id: UUID) -> bool:
         return await self.repository.is_family_active(session, refresh_family_id)

@@ -39,6 +39,19 @@ class SessionRepository:
         )
         await session.execute(stmt)
 
+    async def get_by_id_for_update(
+        self,
+        session: AsyncSession,
+        session_id: UUID,
+    ) -> UserSession | None:
+        stmt = (
+            select(UserSession)
+            .where(UserSession.id == session_id, UserSession.revoked_at.is_(None))
+            .with_for_update(of=UserSession)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def touch_family(self, session: AsyncSession, refresh_family_id: UUID) -> None:
         stmt = (
             update(UserSession)
@@ -48,6 +61,15 @@ class SessionRepository:
             .values(last_seen_at=datetime.now(tz=UTC))
         )
         await session.execute(stmt)
+
+    async def touch_session(
+        self,
+        session: AsyncSession,
+        *,
+        user_session: UserSession,
+        seen_at: datetime,
+    ) -> None:
+        user_session.last_seen_at = seen_at
 
     async def is_family_active(self, session: AsyncSession, refresh_family_id: UUID) -> bool:
         stmt = (

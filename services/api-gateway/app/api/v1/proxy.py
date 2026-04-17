@@ -153,6 +153,7 @@ async def proxy_request(
         headers["Authorization"] = f"Bearer {token}"
         claims = access_token_service.decode_access_token(token)
         await ensure_access_session_active(rate_limiter.redis, claims.sid)
+        await routing_service.auth_client.touch_session(access_token=token)
 
     query_params = httpx.QueryParams(tuple(request.query_params.multi_items()))
     proxied = await routing_service.forward(
