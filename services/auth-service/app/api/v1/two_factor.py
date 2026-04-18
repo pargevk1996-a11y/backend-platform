@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -37,8 +37,14 @@ router = APIRouter(prefix="/two-factor", tags=["two-factor"])
 settings = get_settings()
 
 
+def _mark_sensitive_response(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
 @router.post("/setup", response_model=TwoFactorSetupResponse)
 async def setup_two_factor(
+    response: Response,
     request: Request,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -46,6 +52,7 @@ async def setup_two_factor(
     audit_service: AuditService = Depends(get_audit_service),
     _: None = Depends(rate_limit_dependency("2fa_setup", settings.rate_limit_2fa_setup_per_minute)),
 ) -> TwoFactorSetupResponse:
+    _mark_sensitive_response(response)
     setup_data = await two_factor_service.create_setup(session, user=current_user)
     await audit_service.log_event(
         session,
@@ -57,12 +64,16 @@ async def setup_two_factor(
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
-    return TwoFactorSetupResponse(qr_png_base64=setup_data.qr_png_base64)
+    return TwoFactorSetupResponse(
+        qr_png_base64=setup_data.qr_png_base64,
+        manual_entry_key=setup_data.secret,
+    )
 
 
 @router.post("/enable", response_model=BackupCodesResponse)
 async def enable_two_factor(
     payload: TwoFactorEnableRequest,
+    response: Response,
     request: Request,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -70,6 +81,7 @@ async def enable_two_factor(
     audit_service: AuditService = Depends(get_audit_service),
     _: None = Depends(rate_limit_dependency("2fa_enable", settings.rate_limit_2fa_per_minute)),
 ) -> BackupCodesResponse:
+    _mark_sensitive_response(response)
     backup_codes = await two_factor_service.enable(
         session,
         user=current_user,
@@ -124,6 +136,7 @@ async def disable_two_factor(
 @router.post("/backup-codes/regenerate", response_model=BackupCodesResponse)
 async def regenerate_backup_codes(
     payload: RegenerateBackupCodesRequest,
+    response: Response,
     request: Request,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -131,6 +144,7 @@ async def regenerate_backup_codes(
     audit_service: AuditService = Depends(get_audit_service),
     _: None = Depends(rate_limit_dependency("2fa_regenerate", settings.rate_limit_2fa_per_minute)),
 ) -> BackupCodesResponse:
+    _mark_sensitive_response(response)
     generated = await two_factor_service.regenerate_backup_codes(
         session,
         user=current_user,

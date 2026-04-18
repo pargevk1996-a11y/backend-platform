@@ -36,7 +36,7 @@ class TwoFactorRepository:
         user_id: UUID,
         encrypted_secret: str,
     ) -> TwoFactorSecret:
-        record = await self.get_secret(session, user_id)
+        record = await self.get_secret_for_update(session, user_id)
         if record is None:
             record = TwoFactorSecret(user_id=user_id, encrypted_secret=encrypted_secret)
             session.add(record)

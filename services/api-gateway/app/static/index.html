@@ -44,8 +44,23 @@
             <input id="regEmail" autocomplete="off" placeholder="user@example.com" />
           </div>
           <div class="row">
-            <label>Password</label>
-            <input id="regPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+            <label for="regPassword">Password</label>
+            <div class="password-field">
+              <input id="regPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+              <button
+                id="toggleRegPassword"
+                class="password-toggle"
+                type="button"
+                aria-label="Show password"
+                aria-controls="regPassword"
+                aria-pressed="false"
+                title="Show password"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 5c5.2 0 8.6 4.1 9.7 5.8.5.7.5 1.7 0 2.4C20.6 14.9 17.2 19 12 19s-8.6-4.1-9.7-5.8a2.1 2.1 0 0 1 0-2.4C3.4 9.1 6.8 5 12 5Zm0 2C7.8 7 5 10.3 4 12c1 1.7 3.8 5 8 5s7-3.3 8-5c-1-1.7-3.8-5-8-5Zm0 2.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6Zm0 2a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z" />
+                </svg>
+              </button>
+            </div>
           </div>
           <button id="regBtn" class="btn">Create account</button>
         </div>
@@ -56,8 +71,23 @@
             <input id="loginEmail" autocomplete="off" placeholder="user@example.com" />
           </div>
           <div class="row">
-            <label>Password</label>
-            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+            <label for="loginPassword">Password</label>
+            <div class="password-field">
+              <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+              <button
+                id="toggleLoginPassword"
+                class="password-toggle"
+                type="button"
+                aria-label="Show password"
+                aria-controls="loginPassword"
+                aria-pressed="false"
+                title="Show password"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 5c5.2 0 8.6 4.1 9.7 5.8.5.7.5 1.7 0 2.4C20.6 14.9 17.2 19 12 19s-8.6-4.1-9.7-5.8a2.1 2.1 0 0 1 0-2.4C3.4 9.1 6.8 5 12 5Zm0 2C7.8 7 5 10.3 4 12c1 1.7 3.8 5 8 5s7-3.3 8-5c-1-1.7-3.8-5-8-5Zm0 2.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6Zm0 2a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z" />
+                </svg>
+              </button>
+            </div>
           </div>
           <button id="loginBtn" class="btn">Sign in</button>
         </div>
@@ -76,8 +106,23 @@
             <input id="resetCode" autocomplete="off" placeholder="6-digit code" />
           </div>
           <div class="row">
-            <label>New password</label>
-            <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+            <label for="resetPassword">New password</label>
+            <div class="password-field">
+              <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+              <button
+                id="toggleResetPassword"
+                class="password-toggle"
+                type="button"
+                aria-label="Show password"
+                aria-controls="resetPassword"
+                aria-pressed="false"
+                title="Show password"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 5c5.2 0 8.6 4.1 9.7 5.8.5.7.5 1.7 0 2.4C20.6 14.9 17.2 19 12 19s-8.6-4.1-9.7-5.8a2.1 2.1 0 0 1 0-2.4C3.4 9.1 6.8 5 12 5Zm0 2C7.8 7 5 10.3 4 12c1 1.7 3.8 5 8 5s7-3.3 8-5c-1-1.7-3.8-5-8-5Zm0 2.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6Zm0 2a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z" />
+                </svg>
+              </button>
+            </div>
           </div>
           <button id="resetConfirmBtn" class="btn">Reset password</button>
         </div>
@@ -105,8 +150,23 @@
           <div class="divider"></div>
           <div class="subsection-title">Disable 2FA</div>
           <div class="row">
-            <label>Password</label>
-            <input id="disable2faPassword" type="password" autocomplete="current-password" placeholder="Current password" />
+            <label for="disable2faPassword">Password</label>
+            <div class="password-field">
+              <input id="disable2faPassword" type="password" autocomplete="current-password" placeholder="Current password" />
+              <button
+                id="toggleDisable2faPassword"
+                class="password-toggle"
+                type="button"
+                aria-label="Show password"
+                aria-controls="disable2faPassword"
+                aria-pressed="false"
+                title="Show password"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 5c5.2 0 8.6 4.1 9.7 5.8.5.7.5 1.7 0 2.4C20.6 14.9 17.2 19 12 19s-8.6-4.1-9.7-5.8a2.1 2.1 0 0 1 0-2.4C3.4 9.1 6.8 5 12 5Zm0 2C7.8 7 5 10.3 4 12c1 1.7 3.8 5 8 5s7-3.3 8-5c-1-1.7-3.8-5-8-5Zm0 2.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6Zm0 2a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="row">
             <label>Authenticator code</label>
@@ -127,6 +187,6 @@
       </aside>
     </main>
 
-    <script src="./app.js?v=20260416-qr-popup-raw-small"></script>
+    <script src="./app.js?v=20260418-2fa-popup-security"></script>
   </body>
 </html>

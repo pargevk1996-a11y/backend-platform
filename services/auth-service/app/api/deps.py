@@ -161,7 +161,9 @@ async def get_password_reset_service(
 async def get_current_user(
     request: Request,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings_dep),
     jwt_service: JWTService = Depends(get_jwt_service),
+    session_service: SessionService = Depends(get_session_service),
     user_repository: UserRepository = Depends(get_user_repository),
 ) -> User:
     token = extract_bearer_token(request)
@@ -175,6 +177,13 @@ async def get_current_user(
         raise UnauthorizedException("Invalid access token claims") from exc
     redis = await get_redis(request)
     await ensure_access_session_active(redis, session_id)
+    active_session = await session_service.touch_session_activity(
+        session,
+        session_id=session_id,
+        idle_timeout_seconds=settings.session_idle_timeout_seconds,
+    )
+    if active_session is None:
+        raise UnauthorizedException("Session expired due to inactivity")
     user = await user_repository.get_by_id(session, user_id)
     if user is None:
         raise UnauthorizedException("User not found")

@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pyotp
 import pytest
 from app.core.config import get_settings
-from app.exceptions.two_factor import InvalidTwoFactorCodeException
+from app.exceptions.two_factor import InvalidTwoFactorCodeException, TwoFactorAlreadyEnabledException
 from app.integrations.totp import verifier as totp_verifier
 from app.services.password_service import PasswordService
 from app.services.two_factor_service import TwoFactorService
@@ -81,6 +81,9 @@ async def test_two_factor_setup_enable_and_backup_login() -> None:
     user = SimpleNamespace(id=uuid4(), email="user@example.com", two_factor_enabled=False)
 
     setup = await service.create_setup(None, user=user)
+    assert repo.secret is not None
+    assert repo.secret.encrypted_secret != setup.secret
+    assert service._decrypt_secret(repo.secret.encrypted_secret) == setup.secret
     totp = pyotp.TOTP(setup.secret, interval=settings.totp_interval_seconds)
     current_code = totp.now()
 
@@ -116,3 +119,31 @@ async def test_totp_replay_from_previous_window_is_rejected(
     monkeypatch.setattr(totp_verifier.time, "time", lambda: 1_030)
     with pytest.raises(InvalidTwoFactorCodeException):
         await service.verify_for_login(None, user=user, totp_code=code, backup_code=None)
+
+
+@pytest.mark.asyncio
+async def test_reopening_setup_rotates_secret_and_blocks_access_after_enable() -> None:
+    settings = get_settings()
+    repo = FakeTwoFactorRepository()
+    password_service = PasswordService(settings)
+    service = TwoFactorService(
+        settings=settings, repository=repo, password_service=password_service
+    )
+    user = SimpleNamespace(id=uuid4(), email="user@example.com", two_factor_enabled=False)
+
+    first_setup = await service.create_setup(None, user=user)
+    second_setup = await service.create_setup(None, user=user)
+
+    assert first_setup.secret != second_setup.secret
+    assert repo.secret is not None
+    assert service._decrypt_secret(repo.secret.encrypted_secret) == second_setup.secret
+
+    first_code = pyotp.TOTP(first_setup.secret, interval=settings.totp_interval_seconds).now()
+    with pytest.raises(InvalidTwoFactorCodeException):
+        await service.enable(None, user=user, totp_code=first_code)
+
+    second_code = pyotp.TOTP(second_setup.secret, interval=settings.totp_interval_seconds).now()
+    await service.enable(None, user=user, totp_code=second_code)
+
+    with pytest.raises(TwoFactorAlreadyEnabledException):
+        await service.create_setup(None, user=user)

@@ -24,7 +24,6 @@ from app.services.password_service import PasswordService
 @dataclass(slots=True)
 class TwoFactorSetupData:
     secret: str
-    provisioning_uri: str
     qr_png_base64: str
 
 
@@ -70,7 +69,7 @@ class TwoFactorService:
             issuer_name=self.settings.totp_issuer,
         )
         qr_png_base64 = generate_qr_png_base64(uri)
-        return TwoFactorSetupData(secret=secret, provisioning_uri=uri, qr_png_base64=qr_png_base64)
+        return TwoFactorSetupData(secret=secret, qr_png_base64=qr_png_base64)
 
     async def enable(
         self, session: AsyncSession, *, user: User, totp_code: str

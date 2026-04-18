@@ -59,6 +59,7 @@ class Settings(BaseSettings):
 
     login_challenge_ttl_seconds: int = 300
     password_reset_token_ttl_seconds: int = 900
+    session_idle_timeout_seconds: int = 1800
 
     rate_limit_login_per_minute: int = 10
     rate_limit_2fa_per_minute: int = 10

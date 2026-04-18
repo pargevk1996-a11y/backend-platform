@@ -22,6 +22,10 @@ SENSITIVE_FIELDS = {
     "backup_codes",
     "secret",
     "encrypted_secret",
+    "manual_entry_key",
+    "provisioning_uri",
+    "otpauth_url",
+    "qr_png_base64",
     "private_key",
     "token",
 }

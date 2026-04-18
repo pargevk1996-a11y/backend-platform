@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Enable 2FA</title>
+    <link rel="stylesheet" href="./two-factor-setup.css" />
+  </head>
+  <body>
+    <main class="setup-shell">
+      <section class="setup-card" aria-labelledby="setupTitle">
+        <header class="setup-header">
+          <div class="setup-kicker">Google Authenticator</div>
+          <h1 id="setupTitle">Enable 2FA</h1>
+          <p>Scan the QR code in your authenticator app, then enter the one-time code.</p>
+        </header>
+
+        <div id="setupStatus" class="setup-status" role="status" aria-live="polite">
+          Waiting for secure setup data...
+        </div>
+
+        <section class="qr-section" aria-labelledby="qrStepTitle">
+          <div class="step-label" id="qrStepTitle">Step 1</div>
+          <div id="qrFrame" class="qr-frame" aria-busy="true">
+            <div id="qrPlaceholder" class="qr-placeholder">Preparing secure QR...</div>
+            <img id="qrImage" alt="Google Authenticator QR code" hidden />
+          </div>
+        </section>
+
+        <section id="manualSection" class="manual-section" hidden aria-labelledby="manualStepTitle">
+          <div class="step-label" id="manualStepTitle">Manual key</div>
+          <p class="manual-note">If scanning does not work, enter this setup key manually in Google Authenticator.</p>
+          <code id="manualEntryKey" class="manual-key"></code>
+        </section>
+
+        <form id="codeForm" class="code-form" autocomplete="off">
+          <div class="step-label">Step 2</div>
+          <label for="totpCode">Authenticator code</label>
+          <div class="code-row">
+            <input
+              id="totpCode"
+              autocomplete="one-time-code"
+              inputmode="numeric"
+              maxlength="8"
+              pattern="[0-9]*"
+              placeholder="123456"
+              disabled
+            />
+            <button id="submitBtn" type="submit" disabled>Enable 2FA</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script src="./two-factor-setup.js?v=20260418-2fa-popup-security"></script>
+  </body>
+</html>

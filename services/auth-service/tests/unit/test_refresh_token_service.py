@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
-from app.exceptions.token import TokenReuseDetectedException
+from app.exceptions.token import InvalidTokenException, TokenReuseDetectedException
 from app.services.jwt_service import JWTService
 from app.services.refresh_token_service import RefreshTokenService
 
@@ -64,6 +64,7 @@ class FakeSessionService:
     def __init__(self) -> None:
         self.session_id = uuid4()
         self.active_families: set[UUID] = set()
+        self.allow_activity = True
 
     async def create_session(self, session, *, user_id, refresh_family_id, ip_address, user_agent):
         _ = (user_id, refresh_family_id, ip_address, user_agent)
@@ -75,6 +76,12 @@ class FakeSessionService:
 
     async def touch_family(self, session, refresh_family_id: UUID):
         _ = refresh_family_id
+
+    async def touch_session_activity(self, session, *, session_id: UUID, idle_timeout_seconds: int):
+        _ = (session, idle_timeout_seconds)
+        if not self.allow_activity or session_id != self.session_id or not self.active_families:
+            return None
+        return SimpleNamespace(id=session_id, refresh_family_id=next(iter(self.active_families)))
 
     async def is_family_active(self, session, refresh_family_id: UUID) -> bool:
         _ = session
@@ -155,3 +162,33 @@ async def test_reusing_rotated_refresh_token_revokes_family() -> None:
         for record in repo.records.values()
         if record.family_id == issued.refresh_family_id
     )
+
+
+@pytest.mark.asyncio
+async def test_refresh_rotation_rejects_idle_session() -> None:
+    settings = get_settings()
+    jwt_service = JWTService(settings)
+    repo = FakeRefreshRepo()
+    session_service = FakeSessionService()
+    service = RefreshTokenService(
+        settings=settings,
+        repository=repo,
+        jwt_service=jwt_service,
+        session_service=session_service,
+    )
+
+    issued = await service.issue_for_user(
+        None,
+        user_id=uuid4(),
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+    )
+    session_service.allow_activity = False
+
+    with pytest.raises(InvalidTokenException, match="Session expired due to inactivity"):
+        await service.rotate(
+            None,
+            raw_refresh_token=issued.refresh_token,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )

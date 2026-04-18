@@ -114,6 +114,7 @@ async def proxy_request(
         )
         claims = access_token_service.decode_access_token(token)
         await ensure_access_session_active(rate_limiter.redis, claims.sid)
+        await routing_service.auth_client.touch_session(access_token=token)
         headers["Authorization"] = f"Bearer {token}"
 
     query_params = httpx.QueryParams(tuple(request.query_params.multi_items()))
@@ -151,6 +152,8 @@ async def proxy_request(
                 set_browser_auth_cookies(response, settings=settings, token_pair=token_pair)
 
     if proxied.status_code < 400 and path == "/v1/tokens/revoke":
+        clear_browser_auth_cookies(response, settings=settings)
+    elif proxied.status_code in {401, 403} and path == "/v1/tokens/refresh":
         clear_browser_auth_cookies(response, settings=settings)
 
     return response

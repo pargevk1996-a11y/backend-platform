@@ -32,10 +32,16 @@ async def test_audit_service_removes_sensitive_fields() -> None:
             "password": "secret",
             "access_token": "token",
             "totp_code": "123456",
+            "manual_entry_key": "ABCD-EFGH-IJKL",
+            "qr_png_base64": "base64-qr",
             "is_admin": False,
             "nested": {
                 "authorization": "Bearer secret",
-                "meta": {"password_hash": "hidden", "region": "eu"},
+                "meta": {
+                    "password_hash": "hidden",
+                    "provisioning_uri": "otpauth://totp/test",
+                    "region": "eu",
+                },
             },
         },
     )
@@ -46,9 +52,12 @@ async def test_audit_service_removes_sensitive_fields() -> None:
     assert "password" not in saved
     assert "access_token" not in saved
     assert "totp_code" not in saved
+    assert "manual_entry_key" not in saved
+    assert "qr_png_base64" not in saved
     nested = saved["nested"]
     assert isinstance(nested, dict)
     assert "authorization" not in nested
     meta = nested["meta"]
     assert isinstance(meta, dict)
     assert "password_hash" not in meta
+    assert "provisioning_uri" not in meta

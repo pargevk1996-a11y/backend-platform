@@ -79,4 +79,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'none'; frame-ancestors 'none';"
             )
+        if path == "/ui/two-factor-setup.html":
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
         return response

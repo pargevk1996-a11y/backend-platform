@@ -91,6 +91,55 @@ button {
   font-family: inherit;
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 48px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 34px;
+  min-height: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.password-toggle:hover:not(:disabled),
+.password-toggle:focus-visible {
+  background: #242424;
+  color: var(--text);
+  outline: none;
+}
+
+.password-toggle.is-active {
+  color: var(--accent);
+}
+
+.password-toggle:focus-visible {
+  box-shadow: 0 0 0 2px rgba(110, 231, 168, 0.28);
+}
+
+.password-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  pointer-events: none;
+}
+
 button:disabled,
 input:disabled {
   opacity: 0.55;
@@ -242,36 +291,6 @@ textarea {
   height: 1px;
   background: var(--border);
   margin: 14px 0;
-}
-
-.qr {
-  background: #101010;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  padding: 10px;
-  display: grid;
-  place-items: center;
-  min-height: 160px;
-  position: relative;
-}
-
-.qr img {
-  max-width: 100%;
-  height: auto;
-  display: none;
-}
-
-.qr img.visible {
-  display: block;
-}
-
-.qr-empty {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.hidden {
-  display: none;
 }
 
 .hidden {

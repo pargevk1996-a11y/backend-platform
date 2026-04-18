@@ -64,6 +64,10 @@ async def test_gateway_auth_security_flow() -> None:
     password = _strong_password()
 
     async with httpx.AsyncClient(base_url=_base_url(), timeout=20.0) as client:
+        popup_page_response = await client.get("/ui/two-factor-setup.html")
+        assert popup_page_response.status_code == 200, popup_page_response.text
+        assert popup_page_response.headers.get("cache-control") == "no-store"
+
         register_response = await client.post(
             "/v1/auth/register",
             json={"email": email, "password": password},
@@ -81,9 +85,12 @@ async def test_gateway_auth_security_flow() -> None:
             headers=_csrf_headers(client),
         )
         assert setup_response.status_code == 200, setup_response.text
+        assert setup_response.headers.get("cache-control") == "no-store"
         setup_payload = setup_response.json()
         assert "secret" not in setup_payload
         assert "provisioning_uri" not in setup_payload
+        assert isinstance(setup_payload.get("manual_entry_key"), str)
+        assert setup_payload["manual_entry_key"]
         totp = _totp_from_setup_qr(setup_payload["qr_png_base64"])
         current_code = totp.at(for_time=datetime.now(UTC))
         enable_response = await client.post(
@@ -92,8 +99,15 @@ async def test_gateway_auth_security_flow() -> None:
             json={"totp_code": current_code},
         )
         assert enable_response.status_code == 200, enable_response.text
+        assert enable_response.headers.get("cache-control") == "no-store"
         backup_codes = enable_response.json()["backup_codes"]
         assert isinstance(backup_codes, list) and len(backup_codes) == 10
+
+        repeated_setup_response = await client.post(
+            "/v1/two-factor/setup",
+            headers=_csrf_headers(client),
+        )
+        assert repeated_setup_response.status_code == 409, repeated_setup_response.text
 
         logout_response = await client.post(
             "/v1/tokens/revoke",
@@ -144,10 +158,13 @@ async def test_gateway_auth_security_flow() -> None:
             json={"refresh_token": rotated_refresh},
         )
         assert reused_response.status_code in {401, 409}, reused_response.text
+        if reused_response.status_code == 401:
+            assert client.cookies.get("bp_refresh_token") is None
+            assert client.cookies.get("bp_csrf_token") is None
 
         revoke_response = await client.post(
             "/v1/tokens/revoke",
-            headers=_csrf_headers(client),
+            headers=_csrf_headers(client) if client.cookies.get("bp_csrf_token") else {},
             json={},
         )
         assert revoke_response.status_code == 200, revoke_response.text
