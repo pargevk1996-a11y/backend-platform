@@ -32,6 +32,14 @@ BLOCKED_RESPONSE_HEADERS = {
     "x-powered-by",
 }
 
+ALLOWED_REQUEST_HEADERS = {
+    "authorization": "Authorization",
+    "content-type": "Content-Type",
+    "accept": "Accept",
+    "x-request-id": "X-Request-ID",
+    "x-csrf-token": "X-CSRF-Token",
+}
+
 
 @dataclass(slots=True)
 class ProxiedResponse:
@@ -54,16 +62,26 @@ class RoutingService:
         self.user_client = user_client
         self.notification_client = notification_client
 
+    @staticmethod
+    def _matches_prefix(path: str, prefix: str) -> bool:
+        normalized_path = path.rstrip("/") or "/"
+        normalized_prefix = prefix.rstrip("/") or "/"
+        return normalized_path == normalized_prefix or normalized_path.startswith(
+            f"{normalized_prefix}/"
+        )
+
     def resolve_service(self, path: str) -> AuthClient | UserClient | NotificationClient:
-        if path.startswith(("/v1/auth", "/v1/tokens")):
+        if any(
+            self._matches_prefix(path, prefix)
+            for prefix in ("/v1/auth", "/v1/tokens", "/v1/two-factor", "/v1/sessions")
+        ):
             return self.auth_client
-        if path.startswith(("/v1/two-factor", "/v1/sessions")):
-            return self.auth_client
-        if path.startswith(("/v1/users", "/v1/profiles")):
+        if any(
+            self._matches_prefix(path, prefix)
+            for prefix in ("/v1/users", "/v1/profiles", "/v1/roles", "/v1/permissions")
+        ):
             return self.user_client
-        if path.startswith(("/v1/roles", "/v1/permissions")):
-            return self.user_client
-        if path.startswith("/v1/notify") and self.notification_client.is_configured:
+        if self._matches_prefix(path, "/v1/notify") and self.notification_client.is_configured:
             return self.notification_client
         raise RouteNotFoundException()
 
@@ -112,7 +130,10 @@ class RoutingService:
                 or lower == "content-length"
             ):
                 continue
-            safe[key] = value
+            canonical = ALLOWED_REQUEST_HEADERS.get(lower)
+            if canonical is None:
+                continue
+            safe[canonical] = value
         return safe
 
     def _sanitize_response_headers(self, headers: httpx.Headers) -> dict[str, str]:

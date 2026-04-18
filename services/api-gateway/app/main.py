@@ -11,7 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1.health import router as health_router
 from app.api.v1.proxy import router as proxy_router
 from app.core.config import get_settings
-from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import CSRFMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.security import clear_token_cookies
 from app.core.validation import sanitize_validation_errors
 from app.exceptions.base import AppException
 from app.lifecycle import lifespan
@@ -27,6 +28,7 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(CSRFMiddleware, settings=settings)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -54,7 +56,10 @@ async def root() -> RedirectResponse:
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
     payload = ErrorResponse(error_code=exc.error_code, message=exc.message, request_id=request_id)
-    return JSONResponse(status_code=exc.status_code, content=payload.model_dump())
+    response = JSONResponse(status_code=exc.status_code, content=payload.model_dump())
+    if exc.status_code in {401, 403}:
+        clear_token_cookies(response, settings=settings)
+    return response
 
 
 @app.exception_handler(RequestValidationError)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+import secrets
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from uuid import UUID
@@ -8,11 +10,14 @@ import jwt
 from fastapi import Request
 from jwt import InvalidTokenError
 from redis.asyncio import Redis
+from starlette.responses import Response
 
 from app.core.config import Settings
-from app.core.constants import PUBLIC_ENDPOINTS, TOKEN_TYPE_ACCESS
+from app.core.constants import PUBLIC_ENDPOINTS, SESSION_ENDPOINTS, TOKEN_TYPE_ACCESS
 from app.exceptions.gateway import ForbiddenException, UnauthorizedException
 from app.integrations.redis.keys import access_session_revoked_key
+
+SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 @dataclass(slots=True, frozen=True)
@@ -112,6 +117,151 @@ def extract_bearer_token(request: Request, *, settings: Settings) -> str:
     if not token:
         raise UnauthorizedException("Missing bearer token")
     return token
+
+
+def extract_access_token(request: Request, *, settings: Settings) -> str:
+    authorization = request.headers.get("authorization", "")
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        if token:
+            return token
+
+    cookie_token = request.cookies.get(settings.access_cookie_name, "").strip()
+    if cookie_token:
+        return cookie_token
+    raise UnauthorizedException("Missing access token")
+
+
+def extract_refresh_token(request: Request, *, settings: Settings) -> str:
+    cookie_token = request.cookies.get(settings.refresh_cookie_name, "").strip()
+    if cookie_token:
+        return cookie_token
+    raise UnauthorizedException("Missing refresh token")
+
+
+def issue_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def apply_token_cookies(
+    response: Response,
+    *,
+    settings: Settings,
+    access_token: str,
+    refresh_token: str,
+    access_ttl_seconds: int,
+    csrf_token: str,
+) -> None:
+    cookie_kwargs = {
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "domain": settings.cookie_domain,
+        "path": settings.cookie_path,
+    }
+    response.set_cookie(
+        key=settings.access_cookie_name,
+        value=access_token,
+        httponly=True,
+        max_age=max(1, min(access_ttl_seconds, settings.session_idle_timeout_seconds)),
+        **cookie_kwargs,
+    )
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        max_age=max(
+            1,
+            min(settings.refresh_cookie_ttl_seconds, settings.session_idle_timeout_seconds),
+        ),
+        **cookie_kwargs,
+    )
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=csrf_token,
+        httponly=False,
+        max_age=max(
+            1,
+            min(settings.refresh_cookie_ttl_seconds, settings.session_idle_timeout_seconds),
+        ),
+        **cookie_kwargs,
+    )
+
+
+def refresh_idle_cookies(
+    response: Response,
+    *,
+    request: Request,
+    settings: Settings,
+) -> None:
+    refresh_token = request.cookies.get(settings.refresh_cookie_name, "").strip()
+    csrf_token = request.cookies.get(settings.csrf_cookie_name, "").strip()
+    if not refresh_token or not csrf_token:
+        return
+
+    cookie_kwargs = {
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "domain": settings.cookie_domain,
+        "path": settings.cookie_path,
+    }
+    idle_max_age = max(
+        1,
+        min(settings.refresh_cookie_ttl_seconds, settings.session_idle_timeout_seconds),
+    )
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        max_age=idle_max_age,
+        **cookie_kwargs,
+    )
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=csrf_token,
+        httponly=False,
+        max_age=idle_max_age,
+        **cookie_kwargs,
+    )
+
+
+def clear_token_cookies(response: Response, *, settings: Settings) -> None:
+    cookie_kwargs = {
+        "domain": settings.cookie_domain,
+        "path": settings.cookie_path,
+    }
+    response.delete_cookie(settings.access_cookie_name, **cookie_kwargs)
+    response.delete_cookie(settings.refresh_cookie_name, **cookie_kwargs)
+    response.delete_cookie(settings.csrf_cookie_name, **cookie_kwargs)
+
+
+def is_session_endpoint(method: str, path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    return (method.upper(), normalized) in SESSION_ENDPOINTS
+
+
+def requires_csrf_protection(request: Request, *, settings: Settings) -> bool:
+    method = request.method.upper()
+    if method in SAFE_HTTP_METHODS:
+        return False
+
+    path = request.url.path.rstrip("/") or "/"
+    if is_public_endpoint(method, path):
+        return False
+
+    has_cookie_session = any(
+        request.cookies.get(name)
+        for name in (settings.access_cookie_name, settings.refresh_cookie_name)
+    )
+    return has_cookie_session
+
+
+def validate_csrf(request: Request, *, settings: Settings) -> None:
+    cookie_token = request.cookies.get(settings.csrf_cookie_name, "").strip()
+    header_token = request.headers.get("x-csrf-token", "").strip()
+    if not cookie_token or not header_token:
+        raise ForbiddenException("Missing CSRF token")
+    if not hmac.compare_digest(cookie_token, header_token):
+        raise ForbiddenException("CSRF validation failed")
 
 
 def is_public_endpoint(method: str, path: str) -> bool:

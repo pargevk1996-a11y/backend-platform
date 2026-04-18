@@ -8,6 +8,9 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from app.core.config import Settings
+from app.core.security import requires_csrf_protection, validate_csrf
+
 MAX_REQUEST_ID_LENGTH = 128
 
 
@@ -80,3 +83,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "default-src 'none'; frame-ancestors 'none';"
             )
         return response
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, *, settings: Settings) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(app)
+        self.settings = settings
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if requires_csrf_protection(request, settings=self.settings):
+            validate_csrf(request, settings=self.settings)
+        return await call_next(request)

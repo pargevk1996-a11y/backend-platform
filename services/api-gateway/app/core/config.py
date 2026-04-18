@@ -50,6 +50,15 @@ class Settings(BaseSettings):
 
     rate_limit_public_auth_per_minute: int = 30
     rate_limit_protected_per_minute: int = 120
+    access_cookie_name: str = "bp_access_token"
+    refresh_cookie_name: str = "bp_refresh_token"
+    csrf_cookie_name: str = "bp_csrf_token"
+    cookie_secure: bool = True
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    cookie_domain: str | None = None
+    cookie_path: str = "/"
+    refresh_cookie_ttl_seconds: int = 60 * 60 * 24 * 30
+    session_idle_timeout_seconds: int = 1800
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
@@ -84,6 +93,11 @@ class Settings(BaseSettings):
             raise ValueError(f"PRIVACY_KEY_PEPPER must be at least {MIN_SECRET_LENGTH} characters")
         return value
 
+    @field_validator("cookie_samesite")
+    @classmethod
+    def _validate_cookie_samesite(cls, value: str) -> str:
+        return value.lower().strip()
+
     @model_validator(mode="after")
     def _validate_deployed_security(self) -> Settings:
         if self.service_env not in {"staging", "production"}:
@@ -97,6 +111,10 @@ class Settings(BaseSettings):
             raise ValueError("Wildcard CORS origin is not allowed in staging or production")
         if "BEGIN" not in self.jwt_public_key_value:
             raise ValueError("Deployed asymmetric JWT public key must be PEM-formatted")
+        if not self.cookie_secure:
+            raise ValueError("Staging and production require COOKIE_SECURE=true")
+        if self.cookie_samesite == "none" and not self.cookie_secure:
+            raise ValueError("SameSite=None cookies require COOKIE_SECURE=true")
         return self
 
     @property

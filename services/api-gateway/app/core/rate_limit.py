@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 
 from fastapi import Request
@@ -24,13 +25,18 @@ class RateLimiter:
     async def check(self, *, request: Request, scope: str, limit_per_minute: int) -> None:
         ip = get_client_ip(request, trusted_proxy_ips=self.settings.trusted_proxy_ips)
         client_hash = stable_hmac_digest(value=ip, pepper=self.settings.privacy_key_pepper_value)
-        bucket = int(time.time() // 60)
-        key = rate_limit_key(scope=scope, ip=client_hash, bucket=bucket)
+        key = rate_limit_key(scope=scope, ip=client_hash)
+        now_ms = int(time.time() * 1000)
+        window_start_ms = now_ms - 60_000
+        member = f"{now_ms}:{secrets.token_hex(4)}"
 
         try:
-            current = await self.redis.incr(key)
-            if current == 1:
-                await self.redis.expire(key, 61)
+            pipeline = self.redis.pipeline(transaction=True)
+            pipeline.zremrangebyscore(key, 0, window_start_ms)
+            pipeline.zadd(key, {member: now_ms})
+            pipeline.zcard(key)
+            pipeline.expire(key, 61)
+            _, _, current, _ = await pipeline.execute()
         except RedisError as exc:
             LOGGER.error("rate_limit.redis_error", extra={"error": str(exc), "scope": scope})
             raise ServiceUnavailableException("Rate limiter unavailable") from exc

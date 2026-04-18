@@ -1,4 +1,4 @@
-# 🚀 Backend Platform
+# Backend Platform
 
 <p align="center">
   <img src="https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi" />
@@ -10,320 +10,173 @@
 </p>
 
 <p align="center">
-  Authentication-focused backend platform with token lifecycle management, email-based password recovery, and optional TOTP 2FA.
+  Security-first backend platform with production-grade architecture, token lifecycle controls, and hardening guardrails.
 </p>
 
----
+## Overview
 
-## 🧭 Overview
+`backend-platform` is a microservice-based backend system built to model secure, production-like engineering practices rather than only expose FastAPI endpoints.
 
-`backend-platform` is a security-focused backend platform built with **FastAPI**, **PostgreSQL**, **Redis**, and **Docker**.
+The platform is organized around:
 
-It is designed around clear service boundaries and a predictable authentication model.  
-The project implements a complete auth flow, including:
+- secure authentication and session management
+- clean layered architecture across services
+- production-minded infrastructure with Docker, CI, security checks, and observability hooks
 
-- user registration and sign-in
-- JWT access and refresh tokens
-- refresh token rotation with revocation
-- password reset via email verification code
-- optional TOTP-based 2FA
-- a built-in authentication console for end-to-end testing
+Core services:
 
-The goal of the project is not just to expose auth endpoints, but to model a clean and extensible backend foundation for authentication-heavy systems.
+- `auth-service` for registration, login, JWT issuance, refresh rotation, password reset, 2FA, and audit events
+- `user-service` for identity context, roles, permissions, and RBAC
+- `api-gateway` as the external entry point for auth-aware routing and edge security
+- `notification-service` as a WIP service with health endpoints and baseline hardening
+- `shared/python` for internal contracts and shared utilities
 
----
+## Architecture
 
-## 🏗 Architecture
+The project follows a microservice plus layered architecture:
 
-```mermaid
-flowchart LR
-    Client["Client / Browser"] --> Gateway["API Gateway"]
-    Gateway --> Auth["Auth Service"]
-    Auth --> PG["PostgreSQL"]
-    Auth --> Redis["Redis"]
+```text
+Client -> API Gateway -> Services -> Datastores
 ```
 
-### Components
+Typical layers inside each service:
 
-#### **API Gateway**
-- single entry point for incoming requests
-- routes traffic to internal services
-- serves the built-in authentication UI
-- performs request-level gateway responsibilities
+- `api/` for FastAPI routes
+- `services/` for business logic
+- `repositories/` for persistence access
+- `models/` for ORM entities
+- `schemas/` for validation
+- `core/` for config, middleware, and security helpers
+- `integrations/` for Redis, email, TOTP, and other technical adapters
 
-#### **Auth Service**
+## Security Highlights
+
+This repository is intentionally opinionated about security:
+
+- HttpOnly cookie-based auth flow at the gateway
+- CSRF protection for state-changing requests
+- JWT validation for `iss`, `aud`, `exp`, `nbf`, `iat`, and token `type`
+- refresh token rotation with reuse detection
+- Redis-backed access-session revocation markers
+- brute-force protection with privacy-safe HMAC Redis keys
+- secure response headers and request context middleware
+- production config guardrails for JWT keys, CORS, and cookie security
+- CI policy checks for unsafe libraries and runtime `assert`
+- Docker hardening with multi-stage builds and non-root runtime containers
+
+## Auth Flow
+
+The browser never needs direct access to raw tokens:
+
+1. Client sends auth requests to the gateway.
+2. Gateway proxies the request to the appropriate downstream service.
+3. Auth service validates credentials and issues tokens.
+4. Gateway stores auth state using secure cookies and returns a safe JSON response.
+5. Protected requests are validated through gateway and service-level checks.
+
+## Services
+
+### Auth Service
+
 - registration and login
-- JWT token issuance
-- refresh token rotation
-- token revocation
-- password reset flow
-- TOTP-based 2FA
+- JWT access and refresh token issuance
+- refresh rotation and revoke flow
+- optional TOTP-based 2FA
+- password reset with anti-enumeration behavior
+- audit event recording
 
-#### **PostgreSQL**
-- persistent storage for users and auth-related data
+### User Service
 
-#### **Redis**
-- token revocation state
-- temporary authentication data
-- short-lived auth flow support
+- user identity context
+- profile data
+- roles and permissions
+- RBAC checks
 
----
+### API Gateway
 
-## ✨ Core Features
+- single external entry point
+- protected vs public route handling
+- JWT verification for protected endpoints
+- header sanitization
+- rate limiting
+- built-in auth UI
 
-- **JWT-based authentication**
-- **Access + refresh token flow**
-- **Refresh token rotation**
-- **Refresh token revocation**
-- **Password reset via email code**
-- **Optional TOTP 2FA**
-- **Built-in authentication console**
-- **Dockerized development workflow**
+### Notification Service
 
----
+This service is intentionally marked as WIP. It currently provides:
 
-## 🔐 Authentication Model
+- health endpoints
+- basic config and schemas
+- security middleware
+- tests and Docker packaging
 
-### Token Types
+It is not yet a production delivery system for email, SMS, or push workloads.
 
-#### **Access Token**
-- short-lived
-- used for authenticated requests
+## Tech Stack
 
-#### **Refresh Token**
-- longer-lived
-- used to issue new access tokens
-- rotated on refresh
-- can be revoked
-
----
-
-## 🔄 Token Lifecycle
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Gateway
-    participant AuthService
-
-    Client->>Gateway: POST /v1/auth/login
-    Gateway->>AuthService: Forward credentials
-    AuthService-->>Gateway: Access + Refresh tokens
-    Gateway-->>Client: Auth response
-
-    Client->>Gateway: POST /v1/auth/refresh
-    Gateway->>AuthService: Refresh request
-    AuthService-->>Gateway: New token pair
-    Gateway-->>Client: Rotated tokens
-```
-
-### Behavior
-
-- access tokens are used for protected requests
-- refresh tokens are used to obtain a new token pair
-- refresh tokens are rotated on use
-- revoked tokens are tracked in Redis
-
----
-
-## 🔑 Password Recovery
-
-The platform includes a real email-based password recovery flow.
-
-### Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Gateway
-    participant AuthService
-
-    User->>Gateway: Request password reset (email)
-    Gateway->>AuthService: Forward request
-    AuthService-->>User: Send 6-digit reset code via email
-
-    User->>Gateway: Submit code + new password
-    Gateway->>AuthService: Validate code and update password
-    AuthService-->>User: Password updated
-```
-
-### Security Behavior
-
-- reset codes are time-limited
-- the number of attempts is limited
-- codes are invalidated after successful use
-- password can be changed without the old password after successful verification
-
----
-
-## 🔐 Two-Factor Authentication (2FA)
-
-The system supports optional two-factor authentication based on **TOTP**.
-
-### Characteristics
-
-- compatible with **Google Authenticator**
-- enabled per user
-- validated during authentication flow
-- intended as an additional security layer on top of password-based login
-
----
-
-## 🖥 Built-in Authentication Console
-
-The gateway exposes a browser-based authentication console for end-to-end testing.
-
-### Supported flows
-
-- registration
-- login
-- password reset
-- 2FA setup
-- logout
-- token state visibility
-
-This makes the project easier to validate, demonstrate, and test without external clients.
-
----
-
-## 🧩 Service Layout
-
-```text
-services/
-  auth-service/
-  api-gateway/
-```
-
----
-
-## 🛠 Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Runtime | Python 3.12+ |
-| Framework | FastAPI |
-| ORM | SQLAlchemy |
-| Database | PostgreSQL |
-| Cache / State | Redis |
-| Auth | JWT |
-| Password Hashing | Argon2 |
-| 2FA | TOTP (`pyotp`) |
-| Containerization | Docker |
-| Local Orchestration | Docker Compose |
-
----
-
-## 📡 API Surface
-
-### Authentication Endpoints
-
-```text
-POST /v1/auth/register
-POST /v1/auth/login
-POST /v1/auth/refresh
-POST /v1/auth/logout
-
-POST /v1/auth/2fa/enroll
-POST /v1/auth/2fa/verify
-POST /v1/auth/2fa/validate
-```
-
----
-
-## 🌐 Example Response
-
-```json
-{
-  "access_token": "eyJhbGciOi...",
-  "refresh_token": "def50200..."
-}
-```
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Docker
-- Docker Compose
 - Python 3.12+
-- `make`
+- FastAPI
+- SQLAlchemy
+- PostgreSQL
+- Redis
+- Argon2 password hashing
+- TOTP 2FA
+- Docker and Docker Compose
+- GitHub Actions for CI and security workflows
 
-### Quick Start
+## Local Setup
 
 ```bash
-git clone https://github.com/pargevk1996-a11y/backend-platform.git
-cd backend-platform
-
 make deps
-bash infra/scripts/bootstrap.sh
+infra/scripts/bootstrap.sh
 make up
-```
-
-### Apply Migrations
-
-```bash
 make migrate-auth
+make migrate-user
 ```
 
----
+Open the built-in UI:
 
-## ⚙️ Configuration
+```text
+http://localhost:8000/ui
+```
 
-Environment files are bootstrapped automatically:
+Check health:
 
 ```bash
-bash infra/scripts/bootstrap.sh
+curl http://localhost:8000/v1/health/ready
 ```
 
-Typical configuration includes:
+## Testing
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
-| `JWT_SECRET` / signing material | token signing configuration |
-| `TOTP_ISSUER` | name shown in authenticator apps |
+```bash
+make test
+make test-e2e
+```
 
----
+The test suite covers unit, integration, security, and end-to-end flows across the services.
 
-## 🔒 Security Notes
+## Production Notes
 
-- passwords are hashed using **Argon2**
-- refresh tokens are **rotated**
-- revoked tokens are tracked in **Redis**
-- password reset uses **expiring verification codes**
-- TOTP adds an optional second authentication factor
-- sensitive auth flows rely on validated authentication context
+Production compose includes:
 
----
+- non-root containers
+- read-only filesystems where possible
+- dropped Linux capabilities
+- internal backend network isolation
+- Python-based health checks
 
-## 📊 System Characteristics
+Before deployment, validate:
 
-- clear auth-focused architecture
-- separated gateway and service responsibilities
-- predictable token lifecycle
-- account recovery support
-- optional 2FA
-- dockerized local environment
+- `SERVICE_ENV=production`
+- asymmetric JWT signing setup such as `RS256`
+- explicit `CORS_ALLOWED_ORIGINS`
+- `COOKIE_SECURE=true`
+- non-default secrets, peppers, and datastore passwords
 
----
+## Project Book
 
-## 👨‍💻 Author
+The repository includes a detailed local project book at `docs/project-book.md` that documents architecture, hardening work, and roadmap notes. That file is intended as a local working document and is ignored in Git where configured.
 
-**Pargev Khachatryan**
+## License
 
-Backend developer focused on authentication flows, backend architecture, and security-oriented system design.
-
----
-
-## 📄 License
-
-MIT © [pargevk1996-a11y](https://github.com/pargevk1996-a11y)
-
----
-
-<div align="center">
-  <sub>Built with ❤️ using FastAPI, PostgreSQL, Redis, and a security-first mindset.</sub>
-</div>
+MIT

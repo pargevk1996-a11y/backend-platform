@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.security import get_client_ip
 from app.models.user import User
+from app.schemas.common import MessageResponse
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 settings = get_settings()
@@ -20,3 +21,9 @@ async def current_session_info(
         "email": user.email,
         "client_ip": get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
     }
+
+
+@router.post("/touch", response_model=MessageResponse)
+async def touch_current_session(user: User = Depends(get_current_user)) -> MessageResponse:
+    _ = user
+    return MessageResponse(message="Session activity updated")

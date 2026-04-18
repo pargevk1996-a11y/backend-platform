@@ -71,12 +71,30 @@ class RefreshTokenRepository:
         *,
         token: RefreshToken,
         replaced_by_jti: UUID,
-    ) -> None:
+    ) -> bool:
         now = datetime.now(tz=UTC)
+        stmt = (
+            update(RefreshToken)
+            .where(
+                RefreshToken.id == token.id,
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.rotated_at.is_(None),
+            )
+            .values(
+                rotated_at=now,
+                revoked_at=now,
+                revocation_reason="rotated",
+                replaced_by_jti=replaced_by_jti,
+            )
+        )
+        result = await session.execute(stmt)
+        if result.rowcount != 1:
+            return False
         token.rotated_at = now
         token.revoked_at = now
         token.revocation_reason = "rotated"
         token.replaced_by_jti = replaced_by_jti
+        return True
 
     async def revoke_family(self, session: AsyncSession, family_id: UUID, reason: str) -> None:
         stmt = (
