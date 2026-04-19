@@ -21,6 +21,7 @@ dependencies = [
   "python-json-logger==3.2.1",
   "orjson==3.11.8",
   "httpx==0.28.1",
+  "shared-python==0.1.0",
 ]
 
 [project.optional-dependencies]
