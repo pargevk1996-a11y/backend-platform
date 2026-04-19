@@ -13,6 +13,13 @@ fi
 .venv/bin/pip install -r services/api-gateway/requirements.lock
 .venv/bin/pip install -r tests/e2e/requirements.txt
 
+# shared-python is a workspace member consumed via a .pth link so that tests
+# and local runs can import `shared.*` without needing an editable install
+# (which would require setuptools + network access to rebuild on every bump).
+SHARED_SRC="$(pwd)/shared/python/src"
+PTH_FILE=".venv/lib/python3.12/site-packages/zz-shared-python.pth"
+echo "${SHARED_SRC}" > "${PTH_FILE}"
+
 chmod +x infra/scripts/generate_dev_env.py
 
 need_generate=0

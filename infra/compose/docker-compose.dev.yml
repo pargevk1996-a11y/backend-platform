@@ -1,5 +1,9 @@
 # Development: expose Postgres/Redis/services on 127.0.0.1 only (not the LAN).
 # Set TRUSTED_PROXY_IPS per environment; do not copy dev defaults to staging/production.
+#
+# Unlike prod, dev reads service config from services/*/.env via env_file so that
+# hot iteration on secret rotation scripts and config tweaks does not require
+# recreating compose services.
 services:
   postgres-auth:
     image: postgres:16
@@ -46,7 +50,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -54,7 +58,8 @@ services:
   auth-service:
     build:
       context: ../..
-      dockerfile: infra/docker/auth-service.Dockerfile
+      dockerfile: Dockerfile
+      target: auth-service
     container_name: auth-service
     env_file:
       - ../../services/auth-service/.env
@@ -71,12 +76,10 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/health/live', timeout=2)",
-        ]
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/health/live', timeout=2)"
       interval: 10s
       timeout: 5s
       retries: 10
@@ -84,7 +87,8 @@ services:
   user-service:
     build:
       context: ../..
-      dockerfile: infra/docker/user-service.Dockerfile
+      dockerfile: Dockerfile
+      target: user-service
     container_name: user-service
     env_file:
       - ../../services/user-service/.env
@@ -101,12 +105,10 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/health/live', timeout=2)",
-        ]
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/health/live', timeout=2)"
       interval: 10s
       timeout: 5s
       retries: 10
@@ -114,7 +116,8 @@ services:
   api-gateway:
     build:
       context: ../..
-      dockerfile: infra/docker/gateway.Dockerfile
+      dockerfile: Dockerfile
+      target: api-gateway
     container_name: api-gateway
     env_file:
       - ../../services/api-gateway/.env
@@ -134,12 +137,10 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health/live', timeout=2)",
-        ]
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health/live', timeout=2)"
       interval: 10s
       timeout: 5s
       retries: 10
