@@ -15,7 +15,11 @@
         <div class="hero__row">
           <div class="hero__field">
             <label for="baseUrl">Gateway URL</label>
-            <input id="baseUrl" value="http://localhost:8000" />
+            <input
+              id="baseUrl"
+              value=""
+              placeholder="Auto: same as this page on :8080; http://localhost:8000 locally"
+            />
           </div>
           <div class="hero__field">
             <label for="displayName">Display name (profile)</label>
@@ -125,6 +129,6 @@
       </aside>
     </main>
 
-    <script src="./app.js?v=20260414-contract-fixes"></script>
+    <script src="./app.js?v=20260419-gateway-8080-ui"></script>
   </body>
 </html>
