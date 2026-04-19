@@ -13,13 +13,17 @@
         <div class="hero__title">Authentication Console</div>
         <div class="hero__subtitle">Sign in, register, or reset your password.</div>
         <div class="hero__row">
-          <div class="hero__field hero__field--grow">
+          <div class="hero__field">
             <label for="baseUrl">Gateway URL</label>
             <input
               id="baseUrl"
               value=""
-              placeholder="Auto: same as this page on :8080; http://localhost:8000 locally"
+              placeholder="Same as this page when deployed (e.g. :8080); http://localhost:8000 locally"
             />
+          </div>
+          <div class="hero__field">
+            <label for="displayName">Display name (profile)</label>
+            <input id="displayName" placeholder="Optional, applied after register" />
           </div>
         </div>
       </div>
@@ -98,29 +102,27 @@
             <input id="resetEmail" autocomplete="off" placeholder="user@example.com" />
           </div>
           <button id="resetRequestBtn" class="btn btn--ghost">Send reset code</button>
-          <div id="resetPhase2" class="hidden">
-            <div class="row">
-              <label>Reset code</label>
-              <input id="resetCode" autocomplete="off" placeholder="6-digit code" disabled />
-            </div>
-            <div class="row">
-              <label for="resetPassword">New password</label>
-              <div class="password-field">
-                <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" disabled />
-                <button
-                  type="button"
-                  class="password-toggle"
-                  aria-label="Show password"
-                  title="Show password"
-                  aria-pressed="false"
-                  data-password-target="resetPassword"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
-              </div>
-            </div>
-            <button id="resetConfirmBtn" class="btn" type="button" disabled>Reset password</button>
+          <div class="row">
+            <label>Reset code</label>
+            <input id="resetCode" autocomplete="off" placeholder="6-digit code" />
           </div>
+          <div class="row">
+            <label for="resetPassword">New password</label>
+            <div class="password-field">
+              <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+              <button
+                type="button"
+                class="password-toggle"
+                aria-label="Show password"
+                title="Show password"
+                aria-pressed="false"
+                data-password-target="resetPassword"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+          <button id="resetConfirmBtn" class="btn">Reset password</button>
         </div>
 
         <div class="divider"></div>
@@ -129,8 +131,7 @@
           <div class="subsection-title">Second factor</div>
           <div class="row">
             <label>Authenticator code</label>
-            <input id="totpCode" class="login-totp-input" autocomplete="off" placeholder="123456" />
-            <p id="loginTotpError" class="inline-field-error hidden" role="alert" aria-live="polite"></p>
+            <input id="totpCode" autocomplete="off" placeholder="123456" />
           </div>
           <button id="login2faBtn" class="btn">Verify 2FA</button>
         </div>
@@ -163,18 +164,17 @@
         <h2 id="enable2faTitle" class="modal__title">Set up authenticator</h2>
         <div id="modalEnableStepConfirm">
           <div class="modal__qr-wrap">
-            <img id="modalQrImage" alt="Authenticator setup QR" width="200" height="200" />
+            <img id="modalQrImage" alt="" width="200" height="200" />
           </div>
-          <p class="note">
-            Save these backup codes now (password manager or print). Each code works once. You will need them if you
-            lose your authenticator.
-          </p>
-          <ul class="backup-list" id="modalBackupList"></ul>
-          <p class="note">Scan the QR with your authenticator app, then enter the current code and confirm.</p>
+          <p class="note">Scan the QR with your authenticator app, then enter the current code.</p>
           <label for="modalEnableTotp">Authenticator code</label>
-          <input id="modalEnableTotp" class="modal__totp-input" autocomplete="off" inputmode="numeric" placeholder="123456" />
-          <p id="modalEnableTotpError" class="modal__field-error hidden" role="alert" aria-live="polite"></p>
+          <input id="modalEnableTotp" autocomplete="off" inputmode="numeric" placeholder="123456" />
           <button type="button" id="modalConfirmEnableBtn" class="btn">Confirm and enable</button>
+        </div>
+        <div id="modalEnableStepDone" class="hidden">
+          <p class="note">Save these backup codes in a safe place. Each code works once.</p>
+          <ul class="backup-list" id="modalBackupList"></ul>
+          <button type="button" class="btn" data-close-modal>Done</button>
         </div>
       </div>
     </div>
@@ -184,7 +184,7 @@
       <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="disable2faTitle">
         <button type="button" class="modal__close" data-close-modal aria-label="Close">&times;</button>
         <h2 id="disable2faTitle" class="modal__title">Disable 2FA</h2>
-        <p class="note">Enter your account password and the code from your authenticator app.</p>
+        <p class="note">Enter your account password and either a TOTP code or a backup code.</p>
         <label for="modalDisablePassword">Password</label>
         <div class="password-field">
           <input id="modalDisablePassword" type="password" autocomplete="current-password" />
@@ -199,18 +199,14 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
-        <label for="modalDisableTotp">Authenticator code</label>
+        <label for="modalDisableTotp">Authenticator code <span class="label-hint">(optional if using backup)</span></label>
         <input id="modalDisableTotp" autocomplete="off" inputmode="numeric" placeholder="6–8 digits" />
+        <label for="modalDisableBackup">Backup code <span class="label-hint">(optional if using TOTP)</span></label>
+        <input id="modalDisableBackup" autocomplete="off" placeholder="XXXX-XXXX" />
         <button type="button" id="modalDisableSubmitBtn" class="btn">Disable 2FA</button>
       </div>
     </div>
- sync/local-main-2026-04-19
-    <script src="./app.js?v=20260422-auth-console-fix"></script>
- sync/local-main-2026-04-19
-    <script src="./app.js?v=20260421-auth-lockout-panel"></script>
 
-    <script src="./app.js?v=20260421-auth-ui-2fa-qr-guest-reset"></script>
- main
- main
+    <script src="./app.js?v=20260420-auth-ui-modal-2fa"></script>
   </body>
 </html>
