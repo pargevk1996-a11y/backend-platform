@@ -34,7 +34,6 @@ from app.services.password_service import PasswordService
 from app.services.two_factor_service import TwoFactorService
 
 router = APIRouter(prefix="/two-factor", tags=["two-factor"])
-settings = get_settings()
 
 
 def _mark_sensitive_response(response: Response) -> None:
@@ -50,7 +49,7 @@ async def setup_two_factor(
     current_user: User = Depends(get_current_user),
     two_factor_service: TwoFactorService = Depends(get_two_factor_service),
     audit_service: AuditService = Depends(get_audit_service),
-    _: None = Depends(rate_limit_dependency("2fa_setup", settings.rate_limit_2fa_setup_per_minute)),
+    _: None = Depends(rate_limit_dependency("2fa_setup", "rate_limit_2fa_setup_per_minute")),
 ) -> TwoFactorSetupResponse:
     _mark_sensitive_response(response)
     setup_data = await two_factor_service.create_setup(session, user=current_user)
@@ -60,7 +59,7 @@ async def setup_two_factor(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
@@ -79,7 +78,7 @@ async def enable_two_factor(
     current_user: User = Depends(get_current_user),
     two_factor_service: TwoFactorService = Depends(get_two_factor_service),
     audit_service: AuditService = Depends(get_audit_service),
-    _: None = Depends(rate_limit_dependency("2fa_enable", settings.rate_limit_2fa_per_minute)),
+    _: None = Depends(rate_limit_dependency("2fa_enable", "rate_limit_2fa_per_minute")),
 ) -> BackupCodesResponse:
     _mark_sensitive_response(response)
     backup_codes = await two_factor_service.enable(
@@ -93,7 +92,7 @@ async def enable_two_factor(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
@@ -109,7 +108,7 @@ async def disable_two_factor(
     password_service: PasswordService = Depends(get_password_service),
     two_factor_service: TwoFactorService = Depends(get_two_factor_service),
     audit_service: AuditService = Depends(get_audit_service),
-    _: None = Depends(rate_limit_dependency("2fa_disable", settings.rate_limit_2fa_per_minute)),
+    _: None = Depends(rate_limit_dependency("2fa_disable", "rate_limit_2fa_per_minute")),
 ) -> MessageResponse:
     if not password_service.verify_password(payload.password, current_user.password_hash):
         raise InvalidCredentialsException()
@@ -126,7 +125,7 @@ async def disable_two_factor(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
@@ -142,7 +141,7 @@ async def regenerate_backup_codes(
     current_user: User = Depends(get_current_user),
     two_factor_service: TwoFactorService = Depends(get_two_factor_service),
     audit_service: AuditService = Depends(get_audit_service),
-    _: None = Depends(rate_limit_dependency("2fa_regenerate", settings.rate_limit_2fa_per_minute)),
+    _: None = Depends(rate_limit_dependency("2fa_regenerate", "rate_limit_2fa_per_minute")),
 ) -> BackupCodesResponse:
     _mark_sensitive_response(response)
     generated = await two_factor_service.regenerate_backup_codes(
@@ -157,7 +156,7 @@ async def regenerate_backup_codes(
         outcome="success",
         actor_user_id=current_user.id,
         target_user_id=current_user.id,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()

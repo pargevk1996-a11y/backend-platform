@@ -12,7 +12,6 @@ from app.schemas.common import MessageResponse
 from app.schemas.token import RefreshTokenRequest, RevokeTokenRequest, TokenPairResponse
 from app.services.auth_service import AuthService
 
-settings = get_settings()
 router = APIRouter(prefix="/tokens", tags=["tokens"])
 
 
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/tokens", tags=["tokens"])
     "/refresh",
     response_model=TokenPairResponse,
     dependencies=[
-        Depends(rate_limit_dependency("refresh", settings.rate_limit_refresh_per_minute))
+        Depends(rate_limit_dependency("refresh", "rate_limit_refresh_per_minute"))
     ],
 )
 async def refresh_tokens(
@@ -32,7 +31,7 @@ async def refresh_tokens(
     token_pair = await auth_service.refresh_tokens(
         session,
         refresh_token=payload.refresh_token,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return TokenPairResponse(
@@ -46,7 +45,7 @@ async def refresh_tokens(
     "/revoke",
     response_model=MessageResponse,
     dependencies=[
-        Depends(rate_limit_dependency("revoke", settings.rate_limit_revoke_per_minute))
+        Depends(rate_limit_dependency("revoke", "rate_limit_revoke_per_minute"))
     ],
 )
 async def revoke_token(
@@ -59,7 +58,7 @@ async def revoke_token(
         session,
         refresh_token=payload.refresh_token,
         revoke_family=payload.revoke_family,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return MessageResponse(message="Refresh token revoked")

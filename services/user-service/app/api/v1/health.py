@@ -21,6 +21,9 @@ async def readiness(
     session: AsyncSession = Depends(get_session),
 ) -> HealthResponse:
     await session.execute(text("SELECT 1"))
+    result = await session.execute(text("SELECT to_regclass('public.alembic_version')"))
+    if result.scalar_one() is None:
+        raise HTTPException(status_code=503, detail="Database migrations not applied")
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
         raise HTTPException(status_code=503, detail="Redis is not initialized")

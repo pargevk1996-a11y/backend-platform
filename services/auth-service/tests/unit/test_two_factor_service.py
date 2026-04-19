@@ -8,7 +8,10 @@ from uuid import UUID, uuid4
 import pyotp
 import pytest
 from app.core.config import get_settings
-from app.exceptions.two_factor import InvalidTwoFactorCodeException, TwoFactorAlreadyEnabledException
+from app.exceptions.two_factor import (
+    InvalidTwoFactorCodeException,
+    TwoFactorAlreadyEnabledException,
+)
 from app.integrations.totp import verifier as totp_verifier
 from app.services.password_service import PasswordService
 from app.services.two_factor_service import TwoFactorService

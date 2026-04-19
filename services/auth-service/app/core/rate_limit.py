@@ -9,11 +9,11 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.core.config import Settings, get_settings
-from app.core.privacy import stable_hmac_digest
 from app.core.security import get_client_ip
 from app.exceptions.auth import ServiceUnavailableException, TooManyRequestsException
 from app.integrations.redis.client import get_redis
 from app.integrations.redis.keys import rate_limit_key
+from shared.security import stable_hmac_digest
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,16 +36,25 @@ async def _apply_rate_limit(
         raise TooManyRequestsException("Rate limit exceeded")
 
 
-def rate_limit_dependency(scope: str, limit_per_minute: int) -> Callable[..., object]:
+def rate_limit_dependency(scope: str, limit_attr: str) -> Callable[..., object]:
+    """Build a FastAPI dependency that applies a per-IP rate limit.
+
+    ``limit_attr`` names an attribute on :class:`Settings` (e.g.
+    ``"rate_limit_login_per_minute"``). The value is resolved at request time,
+    so updating config and reloading ``get_settings`` takes effect immediately
+    instead of being baked in at module import time.
+    """
+
     async def _dependency(
         request: Request,
         redis: Redis = Depends(get_redis),
         settings: Settings = Depends(get_settings),
     ) -> None:
+        limit = int(getattr(settings, limit_attr))
         ip = get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips)
         client_hash = stable_hmac_digest(value=ip, pepper=settings.privacy_key_pepper_value)
         bucket = int(time.time() // 60)
         key = rate_limit_key(scope=scope, ip=client_hash, bucket=bucket)
-        await _apply_rate_limit(redis=redis, key=key, limit=limit_per_minute, window_seconds=61)
+        await _apply_rate_limit(redis=redis, key=key, limit=limit, window_seconds=61)
 
     return _dependency

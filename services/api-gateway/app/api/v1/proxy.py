@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.deps import (
     get_access_token_service,
@@ -30,8 +32,10 @@ from app.core.security import (
     get_client_ip,
     is_public_endpoint,
 )
-from app.exceptions.gateway import UnauthorizedException
+from app.exceptions.gateway import UnauthorizedException, UpstreamServiceException
 from app.services.routing_service import RoutingService
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(tags=["proxy"])
 
@@ -41,6 +45,15 @@ TOKEN_ISSUING_PATHS = {
     "/v1/auth/login/2fa",
     "/v1/tokens/refresh",
 }
+
+# Maximum raw body accepted for proxied API calls. Nginx caps inbound size
+# with client_max_body_size, but the gateway enforces its own limit so it is
+# safe when run bare (tests, local dev without nginx).
+MAX_PROXY_BODY_BYTES = 2 * 1024 * 1024
+
+# Touch the auth-service session once per interval per sid to avoid amplifying
+# every protected request into an extra upstream round-trip.
+SESSION_TOUCH_DEBOUNCE_SECONDS = 60
 
 
 @router.api_route(
@@ -62,8 +75,29 @@ async def proxy_request(
     method = request.method.upper()
     is_public = is_public_endpoint(method, path)
 
+    # Envelope limit applied before any per-scope bucket. A single misbehaving
+    # client cannot exhaust multiple scope quotas by rotating endpoints.
+    await rate_limiter.check(
+        request=request,
+        scope="global",
+        limit_per_minute=settings.rate_limit_global_per_minute,
+    )
+
     headers = dict(request.headers)
-    body = await request.body()
+
+    declared_length = headers.get("content-length")
+    if (
+        declared_length
+        and declared_length.isdigit()
+        and int(declared_length) > MAX_PROXY_BODY_BYTES
+    ):
+        raise HTTPException(status_code=413, detail="Payload too large")
+
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_PROXY_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Payload too large")
     client_ip = get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips)
     if is_public:
         await rate_limiter.check(
@@ -114,7 +148,21 @@ async def proxy_request(
         )
         claims = access_token_service.decode_access_token(token)
         await ensure_access_session_active(rate_limiter.redis, claims.sid)
-        await routing_service.auth_client.touch_session(access_token=token)
+        # Debounce session touches so bursty protected requests do not generate
+        # one upstream round-trip per request. Redis SET NX acts as a
+        # distributed lease across gateway replicas.
+        touch_key = f"bp:gw:touch:{claims.sid}"
+        should_touch = await rate_limiter.redis.set(
+            touch_key, "1", nx=True, ex=SESSION_TOUCH_DEBOUNCE_SECONDS
+        )
+        if should_touch:
+            try:
+                await routing_service.auth_client.touch_session(access_token=token)
+            except UpstreamServiceException:
+                LOGGER.warning(
+                    "gateway.touch_session_failed",
+                    extra={"sid": str(claims.sid)},
+                )
         headers["Authorization"] = f"Bearer {token}"
 
     query_params = httpx.QueryParams(tuple(request.query_params.multi_items()))
@@ -143,6 +191,10 @@ async def proxy_request(
                 response_body = encode_json_body(
                     sanitized_auth_payload(path=path, original=parsed, token_pair=token_pair)
                 )
+                # Starlette recomputes Content-Length from body, so strip any
+                # stale framing headers that came from the upstream response.
+                for stale in ("content-length", "content-encoding", "transfer-encoding"):
+                    response_headers.pop(stale, None)
                 response_headers["content-type"] = "application/json"
                 response = Response(
                     content=response_body,

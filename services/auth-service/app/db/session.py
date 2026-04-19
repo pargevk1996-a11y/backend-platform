@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import (
@@ -13,15 +14,37 @@ _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
+def _int_env(name: str, default: int, *, minimum: int = 1) -> int:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(value, minimum)
+
+
 def init_engine(database_url: str) -> None:
+    """Initialise the async engine.
+
+    Pool settings are tuned for a per-container workload. Override per
+    environment via DB_POOL_SIZE / DB_MAX_OVERFLOW / DB_POOL_TIMEOUT /
+    DB_POOL_RECYCLE without re-deploying the image.
+    """
     global _engine
     global _session_factory
     _engine = create_async_engine(
         database_url,
         pool_pre_ping=True,
-        pool_size=20,
-        max_overflow=20,
-        pool_recycle=1800,
+        pool_size=_int_env("DB_POOL_SIZE", 10),
+        max_overflow=_int_env("DB_MAX_OVERFLOW", 5, minimum=0),
+        pool_timeout=_int_env("DB_POOL_TIMEOUT", 5),
+        pool_recycle=_int_env("DB_POOL_RECYCLE", 1800),
+        connect_args={
+            "server_settings": {"application_name": "auth-service"},
+            "timeout": _int_env("DB_CONNECT_TIMEOUT", 10),
+        },
     )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 

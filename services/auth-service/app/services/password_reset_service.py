@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.constants import AUDIT_PASSWORD_RESET_COMPLETED, AUDIT_PASSWORD_RESET_REQUESTED
-from app.core.privacy import normalize_optional
+from app.core.privacy import normalize_optional, stable_hmac_digest
 from app.exceptions.auth import BadRequestException
 from app.integrations.email.provider import EmailProvider
 from app.integrations.redis.keys import access_session_revoked_key
@@ -129,7 +129,12 @@ class PasswordResetService:
             target_user_id=user.id,
             ip_address=ip_address,
             user_agent=user_agent,
-            payload={"email": user.email},
+            payload={
+                "email_digest": stable_hmac_digest(
+                    value=user.email.strip().lower(),
+                    pepper=self.settings.privacy_key_pepper_value,
+                ),
+            },
         )
         await session.commit()
         return PasswordResetRequestResult(email_sent=True)
@@ -203,6 +208,12 @@ class PasswordResetService:
         await self.brute_force_service.clear_failures(
             scope="login_account",
             identifier=account_identifier,
+        )
+        # A successful reset restores the account, so also clear any 2FA lock
+        # that the attacker may have triggered via guesses against this email.
+        await self.brute_force_service.clear_failures(scope="2fa", identifier=identifier)
+        await self.brute_force_service.clear_failures(
+            scope="2fa", identifier=account_identifier
         )
 
         await self.audit_service.log_event(

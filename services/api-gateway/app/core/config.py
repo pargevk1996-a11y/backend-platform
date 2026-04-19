@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from shared.config import load_file_backed_env
+
+_FILE_BACKED_FIELDS: dict[str, str] = {
+    "jwt_public_key": "JWT_PUBLIC_KEY_FILE",
+    "privacy_key_pepper": "PRIVACY_KEY_PEPPER_FILE",
+}
+
 
 MIN_SECRET_LENGTH = 32
 ALLOWED_JWT_ALGORITHMS = {
@@ -28,6 +36,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_file_backed_secrets(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        for field_name, content in load_file_backed_env(_FILE_BACKED_FIELDS).items():
+            data[field_name] = content
+            data[field_name.upper()] = content
+        return data
+
     service_name: str = "api-gateway"
     service_env: Literal["development", "staging", "production"] = "development"
     service_port: int = 8000
@@ -50,6 +68,10 @@ class Settings(BaseSettings):
 
     rate_limit_public_auth_per_minute: int = 30
     rate_limit_protected_per_minute: int = 120
+    # Envelope limit applied to ALL requests from a single client IP, layered on
+    # top of scope-specific buckets. Protects against enumeration across many
+    # distinct endpoints.
+    rate_limit_global_per_minute: int = 300
 
     auth_access_cookie_name: str = "bp_access_token"
     auth_refresh_cookie_name: str = "bp_refresh_token"

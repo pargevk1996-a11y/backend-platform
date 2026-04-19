@@ -4,7 +4,6 @@ import logging
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.health import router as health_router
@@ -21,22 +20,22 @@ from app.schemas.common import ErrorResponse
 
 LOGGER = logging.getLogger(__name__)
 settings = get_settings()
+api_docs_enabled = settings.service_env == "development"
 
 app = FastAPI(
     title="user-service",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if api_docs_enabled else None,
+    redoc_url="/redoc" if api_docs_enabled else None,
+    openapi_url="/openapi.json" if api_docs_enabled else None,
 )
 
+# user-service is an internal service reachable only via the API gateway. CORS
+# enforcement happens at the gateway edge; registering CORSMiddleware here would
+# only mask misconfigurations that expose this service directly to browsers.
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-)
 
 
 @app.exception_handler(AppException)

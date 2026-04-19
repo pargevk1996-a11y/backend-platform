@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -19,11 +20,15 @@ from app.schemas.common import ErrorResponse
 
 LOGGER = logging.getLogger(__name__)
 settings = get_settings()
+api_docs_enabled = settings.service_env == "development"
 
 app = FastAPI(
     title="api-gateway",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if api_docs_enabled else None,
+    redoc_url="/redoc" if api_docs_enabled else None,
+    openapi_url="/openapi.json" if api_docs_enabled else None,
 )
 
 app.add_middleware(RequestContextMiddleware)
@@ -42,7 +47,11 @@ app.add_middleware(
     ],
 )
 
-app.mount("/ui", StaticFiles(directory="app/static", html=True), name="ui")
+# Resolve the static directory relative to this module so `uvicorn app.main:app`
+# works regardless of the process working directory (dev `make run-gateway`
+# changes cwd, but prod Dockerfile runs from /app).
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")
 
 
 @app.get("/", include_in_schema=False)
