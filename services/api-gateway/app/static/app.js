@@ -40,7 +40,7 @@ function baseUrl() {
   return "http://localhost:8000";
 }
 
-/** When the UI is opened over http(s) (e.g. EC2 :8080), use the same origin as the API base. */
+/** When the UI is served over http(s) (e.g. EC2 :8080), use the same origin as the API base. */
 function syncGatewayBaseUrlFromPage() {
   const el = $("baseUrl");
   if (!el) return;
