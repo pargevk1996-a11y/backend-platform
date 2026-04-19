@@ -18,7 +18,7 @@
             <input
               id="baseUrl"
               value=""
-              placeholder="Same as this page when deployed; http://localhost:8000 locally"
+              placeholder="Same as this page when deployed (e.g. :8080); http://localhost:8000 locally"
             />
           </div>
           <div class="hero__field">
@@ -48,8 +48,19 @@
             <input id="regEmail" autocomplete="off" placeholder="user@example.com" />
           </div>
           <div class="row">
-            <label>Password</label>
-            <input id="regPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+            <label for="regPassword">Password</label>
+            <div class="password-wrap">
+              <input id="regPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+              <button
+                type="button"
+                class="password-toggle"
+                aria-label="Show password"
+                title="Show password"
+                data-password-target="regPassword"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
           </div>
           <button id="regBtn" class="btn">Create account</button>
         </div>
@@ -60,8 +71,19 @@
             <input id="loginEmail" autocomplete="off" placeholder="user@example.com" />
           </div>
           <div class="row">
-            <label>Password</label>
-            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+            <label for="loginPassword">Password</label>
+            <div class="password-wrap">
+              <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+              <button
+                type="button"
+                class="password-toggle"
+                aria-label="Show password"
+                title="Show password"
+                data-password-target="loginPassword"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
           </div>
           <button id="loginBtn" class="btn">Sign in</button>
         </div>
@@ -80,8 +102,19 @@
             <input id="resetCode" autocomplete="off" placeholder="6-digit code" />
           </div>
           <div class="row">
-            <label>New password</label>
-            <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+            <label for="resetPassword">New password</label>
+            <div class="password-wrap">
+              <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
+              <button
+                type="button"
+                class="password-toggle"
+                aria-label="Show password"
+                title="Show password"
+                data-password-target="resetPassword"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
           </div>
           <button id="resetConfirmBtn" class="btn">Reset password</button>
         </div>
@@ -106,11 +139,11 @@
           <button id="setup2faBtn" class="btn btn--ghost" disabled>Create QR for Google Authenticator</button>
         </div>
         <div class="note">
-          Scan the QR, then enter the 6-digit code to enable 2FA.
+          The QR opens in a new tab. Then enter the 6-digit code below to enable 2FA.
         </div>
         <div class="qr" id="qrBox">
           <img id="qrImage" alt="QR code for Google Authenticator" />
-          <div id="qrEmpty" class="qr-empty">QR will appear here</div>
+          <div id="qrEmpty" class="qr-empty">QR opens in a new tab after you click the button.</div>
         </div>
         <div class="row">
           <label>Authenticator code</label>
@@ -129,6 +162,6 @@
       </aside>
     </main>
 
-    <script src="./app.js?v=20260419-gateway-origin-sync"></script>
+    <script src="./app.js?v=20260420-password-qr-tab"></script>
   </body>
 </html>

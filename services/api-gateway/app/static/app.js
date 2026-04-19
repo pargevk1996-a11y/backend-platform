@@ -27,6 +27,8 @@ const state = {
   qrReady: false,
 };
 
+const QR_EMPTY_DEFAULT = "QR opens in a new tab after you click the button.";
+
 function baseUrl() {
   const raw = $("baseUrl").value.replace(/\/+$/, "");
   if (raw) {
@@ -38,7 +40,7 @@ function baseUrl() {
   return "http://localhost:8000";
 }
 
-/** When the UI is served from the gateway over http(s), default API calls to the same origin (fixes IP/domain deploys). */
+/** When the UI is served over http(s) (e.g. EC2 :8080), use the same origin as the API base. */
 function syncGatewayBaseUrlFromPage() {
   const el = $("baseUrl");
   if (!el) return;
@@ -93,7 +95,7 @@ function refreshSetupState() {
   $("enable2faBtn").disabled = !isSignedIn || !state.qrReady || state.loading;
   $("logoutBtn").disabled = !state.tokens?.refresh_token || state.loading;
   $("setupNote").textContent = canSetup
-    ? "Create a QR now, scan it, then enter the authenticator code."
+    ? "The QR opens in a new tab. Scan it, then enter the authenticator code below."
     : "Sign in or create an account to enable 2FA.";
 }
 
@@ -157,7 +159,49 @@ function resetQr() {
   $("qrImage").classList.remove("visible");
   $("qrImage").removeAttribute("src");
   $("qrEmpty").classList.remove("hidden");
+  $("qrEmpty").textContent = QR_EMPTY_DEFAULT;
   refreshSetupState();
+}
+
+function wirePasswordToggles() {
+  document.querySelectorAll(".password-toggle[data-password-target]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-password-target");
+      const input = document.getElementById(id);
+      if (!input) return;
+      const showPlain = input.type === "password";
+      input.type = showPlain ? "text" : "password";
+      const hidden = !showPlain;
+      btn.setAttribute("aria-label", hidden ? "Show password" : "Hide password");
+      btn.setAttribute("title", hidden ? "Show password" : "Hide password");
+      btn.setAttribute("aria-pressed", showPlain ? "true" : "false");
+    });
+  });
+}
+
+/** Opens a dedicated page with the TOTP QR (API returns png base64 only). */
+function openQrInNewTab(qrPngBase64) {
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Google Authenticator — QR</title>
+<style>
+body{font-family:ui-sans-serif,system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:24px;text-align:center;}
+h1{font-size:1.15rem;font-weight:600;margin:0 0 10px;}
+p{color:#aaa;font-size:14px;max-width:440px;margin:0 auto 20px;line-height:1.5;}
+img{max-width:min(280px,90vw);height:auto;border-radius:8px;background:#fff;padding:8px;}
+</style></head><body>
+<h1>Scan with Google Authenticator</h1>
+<p>Add an account in your app and scan this QR code, then return to the previous tab and enter the 6-digit code.</p>
+<img src="data:image/png;base64,${qrPngBase64}" alt="TOTP QR code"/>
+</body></html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank", "noopener,noreferrer");
+  if (win) {
+    win.focus();
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } else {
+    URL.revokeObjectURL(url);
+    throw new Error("Could not open a new tab (popup blocked). Allow popups for this site.");
+  }
 }
 
 function loadStoredTokens() {
@@ -440,13 +484,15 @@ $("setup2faBtn").addEventListener("click", async () => {
     const token = ensureAccessToken();
     const body = await post("/v1/two-factor/setup", {}, token);
     if (body.qr_png_base64) {
-      $("qrImage").src = `data:image/png;base64,${body.qr_png_base64}`;
-      $("qrImage").classList.add("visible");
-      $("qrEmpty").classList.add("hidden");
+      openQrInNewTab(body.qr_png_base64);
+      $("qrImage").classList.remove("visible");
+      $("qrImage").removeAttribute("src");
+      $("qrEmpty").classList.remove("hidden");
+      $("qrEmpty").textContent = "QR opened in a new tab. Scan it, then enter the code below.";
       state.qrReady = true;
       refreshSetupState();
     }
-    setStatus("QR created. Scan in Google Authenticator.", false);
+    setStatus("QR opened in a new tab. Complete setup in Google Authenticator.", false);
     setResult(body, false);
   } catch (err) {
     setStatus(err.message || "2FA setup failed.", true);
@@ -504,6 +550,7 @@ $("logoutBtn").addEventListener("click", async () => {
 });
 
 syncGatewayBaseUrlFromPage();
+wirePasswordToggles();
 resetQr();
 setFormMode("register");
 setSetupEnabled(false);
