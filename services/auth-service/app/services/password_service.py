@@ -8,6 +8,18 @@ from argon2.exceptions import VerifyMismatchError
 from app.core.config import Settings
 from app.exceptions.auth import BadRequestException
 
+MIN_PASSWORD_LENGTH = 12
+# Capped to avoid Argon2 DoS via absurdly long input.
+MAX_PASSWORD_LENGTH = 128
+MIN_PASSWORD_CLASSES = 3
+
+_CHAR_CLASSES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"[a-z]"),
+    re.compile(r"[A-Z]"),
+    re.compile(r"\d"),
+    re.compile(r"[^0-9A-Za-z]"),
+)
+
 
 class PasswordService:
     """Argon2-based password and backup-code hashing service."""
@@ -24,12 +36,22 @@ class PasswordService:
         self._dummy_password_hash = self._hasher.hash("TimingMitigationPassword!123")
 
     def validate_password_policy(self, password: str) -> None:
-        if len(password) < 8:
-            raise BadRequestException("Password must be at least 8 characters long")
-        if not re.search(r"[A-Za-z]", password):
-            raise BadRequestException("Password must include at least one letter")
-        if not re.search(r"\d", password):
-            raise BadRequestException("Password must include at least one digit")
+        if not isinstance(password, str):
+            raise BadRequestException("Password must be a string")
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise BadRequestException(
+                f"Password must be at least {MIN_PASSWORD_LENGTH} characters long"
+            )
+        if len(password) > MAX_PASSWORD_LENGTH:
+            raise BadRequestException(
+                f"Password must be at most {MAX_PASSWORD_LENGTH} characters long"
+            )
+        classes_present = sum(bool(pattern.search(password)) for pattern in _CHAR_CLASSES)
+        if classes_present < MIN_PASSWORD_CLASSES:
+            raise BadRequestException(
+                "Password must contain at least "
+                f"{MIN_PASSWORD_CLASSES} of: lowercase, uppercase, digit, symbol"
+            )
 
     def hash_password(self, password: str) -> str:
         self.validate_password_policy(password)

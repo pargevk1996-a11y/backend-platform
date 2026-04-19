@@ -98,6 +98,12 @@ def settings_access_cookie_default() -> int:
     return 900
 
 
+def _cookie_domain(settings: Settings) -> str | None:
+    # Starlette rejects an empty-string domain; only forward non-empty values.
+    domain = settings.auth_cookie_domain
+    return domain if domain else None
+
+
 def set_browser_auth_cookies(
     response: Response,
     *,
@@ -107,11 +113,17 @@ def set_browser_auth_cookies(
     csrf_token = new_csrf_token()
     secure = settings.auth_cookie_secure_value
     same_site = settings.auth_cookie_samesite
-    domain = settings.auth_cookie_domain
+    domain = _cookie_domain(settings)
+    # Hard cap access cookie lifetime. expires_in is trusted input from the
+    # auth-service upstream, so clamp it regardless of what was returned.
+    access_max_age = min(
+        max(int(token_pair.expires_in), 0),
+        settings.auth_access_cookie_max_age_seconds,
+    )
     response.set_cookie(
         settings.auth_access_cookie_name,
         token_pair.access_token,
-        max_age=min(token_pair.expires_in, settings.auth_access_cookie_max_age_seconds),
+        max_age=access_max_age,
         httponly=True,
         secure=secure,
         samesite=same_site,
@@ -141,6 +153,7 @@ def set_browser_auth_cookies(
 
 
 def clear_browser_auth_cookies(response: Response, *, settings: Settings) -> None:
+    domain = _cookie_domain(settings)
     for name in (
         settings.auth_access_cookie_name,
         settings.auth_refresh_cookie_name,
@@ -149,7 +162,7 @@ def clear_browser_auth_cookies(response: Response, *, settings: Settings) -> Non
         response.delete_cookie(
             name,
             path="/",
-            domain=settings.auth_cookie_domain,
+            domain=domain,
             secure=settings.auth_cookie_secure_value,
             samesite=settings.auth_cookie_samesite,
         )

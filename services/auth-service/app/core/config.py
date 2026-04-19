@@ -1,11 +1,26 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from cryptography.fernet import Fernet
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from shared.config import load_file_backed_env
+
+# Mapping of settings-field -> environment variable that, when set, points to a
+# file whose contents will be used as the field value (Docker secrets pattern).
+_FILE_BACKED_FIELDS: dict[str, str] = {
+    "jwt_private_key": "JWT_PRIVATE_KEY_FILE",
+    "jwt_public_key": "JWT_PUBLIC_KEY_FILE",
+    "totp_encryption_key": "TOTP_ENCRYPTION_KEY_FILE",
+    "refresh_token_hash_pepper": "REFRESH_TOKEN_HASH_PEPPER_FILE",
+    "privacy_key_pepper": "PRIVACY_KEY_PEPPER_FILE",
+    "password_reset_token_pepper": "PASSWORD_RESET_TOKEN_PEPPER_FILE",
+    "smtp_password": "SMTP_PASSWORD_FILE",
+}
+
 
 ALLOWED_JWT_ALGORITHMS = {
     "HS256",
@@ -30,6 +45,23 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_file_backed_secrets(cls, data: Any) -> Any:
+        """Overlay values from <FIELD>_FILE env vars onto raw inputs.
+
+        pydantic_settings populates the init dict using the field *alias* when
+        it is set (e.g. ``PRIVACY_KEY_PEPPER``), not the Python field name, so
+        we must overwrite both keys to make the file-backed value win.
+        """
+        if not isinstance(data, dict):
+            return data
+        file_values = load_file_backed_env(_FILE_BACKED_FIELDS)
+        for field_name, content in file_values.items():
+            data[field_name] = content
+            data[field_name.upper()] = content
+        return data
 
     service_name: str = "auth-service"
     service_env: Literal["development", "staging", "production"] = "development"

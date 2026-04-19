@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +23,8 @@ from app.schemas.token import TokenPairResponse
 from app.services.auth_service import AuthService
 from app.services.password_reset_service import PasswordResetService
 
-settings = get_settings()
+LOGGER = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -30,7 +33,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     response_model=TokenPairResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[
-        Depends(rate_limit_dependency("register", settings.rate_limit_register_per_minute))
+        Depends(rate_limit_dependency("register", "rate_limit_register_per_minute"))
     ],
 )
 async def register(
@@ -43,7 +46,7 @@ async def register(
         session,
         email=payload.email,
         password=payload.password,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return TokenPairResponse(
@@ -56,7 +59,7 @@ async def register(
 @router.post(
     "/login",
     response_model=LoginResponse,
-    dependencies=[Depends(rate_limit_dependency("login", settings.rate_limit_login_per_minute))],
+    dependencies=[Depends(rate_limit_dependency("login", "rate_limit_login_per_minute"))],
 )
 async def login(
     payload: LoginRequest,
@@ -68,7 +71,7 @@ async def login(
         session,
         email=payload.email,
         password=payload.password,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
 
@@ -77,6 +80,13 @@ async def login(
 
     tokens = result.tokens
     if tokens is None:
+        # This branch should be unreachable: when requires_2fa is False the
+        # auth service always returns tokens. Log loudly so it shows up in
+        # incident dashboards if the invariant ever breaks.
+        LOGGER.error(
+            "auth.login_invariant_violation",
+            extra={"invariant": "tokens_missing_without_2fa"},
+        )
         raise RuntimeError("Unexpected login state: token pair is missing without 2FA")
     return LoginResponse(
         requires_2fa=False,
@@ -91,7 +101,7 @@ async def login(
 @router.post(
     "/login/2fa",
     response_model=TokenPairResponse,
-    dependencies=[Depends(rate_limit_dependency("2fa", settings.rate_limit_2fa_per_minute))],
+    dependencies=[Depends(rate_limit_dependency("2fa", "rate_limit_2fa_per_minute"))],
 )
 async def verify_login_2fa(
     payload: LoginTwoFactorRequest,
@@ -104,7 +114,7 @@ async def verify_login_2fa(
         challenge_id=payload.challenge_id,
         totp_code=payload.totp_code,
         backup_code=payload.backup_code,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return TokenPairResponse(
@@ -120,7 +130,7 @@ async def verify_login_2fa(
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[
         Depends(
-            rate_limit_dependency("password_reset", settings.rate_limit_password_reset_per_minute)
+            rate_limit_dependency("password_reset", "rate_limit_password_reset_per_minute")
         )
     ],
 )
@@ -133,7 +143,7 @@ async def request_password_reset(
     await reset_service.request_reset(
         session,
         email=payload.email,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return PasswordResetResponse()
@@ -146,7 +156,7 @@ async def request_password_reset(
         Depends(
             rate_limit_dependency(
                 "password_reset_confirm",
-                settings.rate_limit_password_reset_per_minute,
+                "rate_limit_password_reset_per_minute",
             )
         )
     ],
@@ -162,7 +172,7 @@ async def reset_password(
         email=payload.email,
         code=payload.code,
         new_password=payload.password,
-        ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        ip_address=get_client_ip(request, trusted_proxy_ips=get_settings().trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
     return PasswordResetResponse()

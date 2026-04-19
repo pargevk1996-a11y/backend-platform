@@ -283,9 +283,13 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
     assert session_service.revoked_for_user == user.id
     assert len(redis.values) == len(session_service.active_session_ids)
     assert all(key.startswith("access_session_revoked:") for key in redis.values)
+    # Successful reset also drops 2FA lockouts triggered by guessing attempts
+    # against the same email/IP pair.
     assert brute_force_service.cleared == [
         ("password_reset", "user@example.com:127.0.0.1"),
         ("password_reset_account", "user@example.com"),
         ("login", "user@example.com:127.0.0.1"),
         ("login_account", "user@example.com"),
+        ("2fa", "user@example.com:127.0.0.1"),
+        ("2fa", "user@example.com"),
     ]

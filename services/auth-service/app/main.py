@@ -4,7 +4,6 @@ import logging
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.auth import router as auth_router
@@ -21,28 +20,23 @@ from app.schemas.common import ErrorResponse
 
 LOGGER = logging.getLogger(__name__)
 settings = get_settings()
+api_docs_enabled = settings.service_env == "development"
 
 app = FastAPI(
     title="auth-service",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if api_docs_enabled else None,
+    redoc_url="/redoc" if api_docs_enabled else None,
+    openapi_url="/openapi.json" if api_docs_enabled else None,
 )
 
+# auth-service is an internal service reachable only via the API gateway on a
+# private Docker network. Browser CORS is enforced by the gateway alone, so we
+# intentionally do NOT register CORSMiddleware here — it would only weaken
+# defense-in-depth if the service is ever exposed by misconfiguration.
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "X-Request-ID",
-        "Idempotency-Key",
-        "X-CSRF-Token",
-    ],
-)
 
 
 @app.exception_handler(AppException)

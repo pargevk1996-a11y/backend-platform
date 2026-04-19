@@ -158,7 +158,11 @@ class TwoFactorService:
         return GeneratedBackupCodes(plain_codes=plain_codes)
 
     async def _verify_totp(self, session: AsyncSession, *, user: User, totp_code: str) -> None:
-        secret_record = await self.repository.get_secret(session, user.id)
+        # SELECT ... FOR UPDATE closes a race where two concurrent verifications
+        # could both pass for the same TOTP code before last_used_timecode is
+        # persisted. With the row lock, the second verifier sees the updated
+        # timecode and rejects the replay.
+        secret_record = await self.repository.get_secret_for_update(session, user.id)
         if secret_record is None or secret_record.confirmed_at is None:
             raise TwoFactorNotEnabledException()
 

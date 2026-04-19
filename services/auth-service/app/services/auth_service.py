@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -32,6 +33,16 @@ from app.services.brute_force_protection_service import BruteForceProtectionServ
 from app.services.password_service import PasswordService
 from app.services.refresh_token_service import RefreshTokenService, TokenPair
 from app.services.two_factor_service import TwoFactorService
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _email_digest(settings: Settings, email: str) -> str:
+    """PII-preserving keyed hash of an email for audit payloads."""
+    return stable_hmac_digest(
+        value=email.strip().lower(),
+        pepper=settings.privacy_key_pepper_value,
+    )
 
 
 @dataclass(slots=True)
@@ -95,7 +106,7 @@ class AuthService:
             target_user_id=user.id,
             ip_address=ip_address,
             user_agent=user_agent,
-            payload={"email": user.email},
+            payload={"email_digest": _email_digest(self.settings, user.email)},
         )
         await session.commit()
         return token_pair
@@ -128,7 +139,10 @@ class AuthService:
                     target_user_id=user.id,
                     ip_address=ip_address,
                     user_agent=user_agent,
-                    payload={"email": normalized_email, "reason": "account_locked"},
+                    payload={
+                        "email_digest": _email_digest(self.settings, normalized_email),
+                        "reason": "account_locked",
+                    },
                 )
                 await session.commit()
                 raise AccountLockedException("Account locked. Reset password to unlock.")
@@ -159,7 +173,7 @@ class AuthService:
                 ip_address=ip_address,
                 user_agent=user_agent,
                 payload={
-                    "email": normalized_email,
+                    "email_digest": _email_digest(self.settings, normalized_email),
                     "failed_login_count": user.failed_login_count if user else None,
                     "locked_until_password_reset": locked,
                 },
@@ -170,6 +184,13 @@ class AuthService:
             raise InvalidCredentialsException()
 
         if user is None:
+            # Invariant: password verification sets ok=True only when a user
+            # record was loaded. Reaching this branch means the code was
+            # re-ordered incorrectly. Surface to alerting, then crash hard.
+            LOGGER.error(
+                "auth.login_invariant_violation",
+                extra={"invariant": "password_ok_without_user"},
+            )
             raise RuntimeError("Unexpected login state: password verified without a user")
 
         if not user.is_active:
@@ -181,7 +202,10 @@ class AuthService:
                 target_user_id=user.id,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                payload={"email": normalized_email, "reason": "inactive_account"},
+                payload={
+                    "email_digest": _email_digest(self.settings, normalized_email),
+                    "reason": "inactive_account",
+                },
             )
             await session.commit()
             raise InvalidCredentialsException()
@@ -440,10 +464,15 @@ class AuthService:
             decoded = json.loads(raw)
         except json.JSONDecodeError:
             return None
-        return {
-            "user_id": decoded.get("user_id"),
-            "ip_fingerprint": decoded.get("ip_fingerprint"),
-        }
+        if not isinstance(decoded, dict):
+            return None
+        user_id = decoded.get("user_id")
+        ip_fingerprint = decoded.get("ip_fingerprint")
+        # Both fields must be present and string-typed; anything else means the
+        # record was written by an older/foreign producer and cannot be trusted.
+        if not isinstance(user_id, str) or not isinstance(ip_fingerprint, str):
+            return None
+        return {"user_id": user_id, "ip_fingerprint": ip_fingerprint}
 
     async def _delete_login_challenge(self, challenge_id: str) -> None:
         key = login_challenge_key(challenge_id)
