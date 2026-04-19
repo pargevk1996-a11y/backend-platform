@@ -14,9 +14,10 @@ settings = get_settings()
 @router.get("/me")
 async def current_session_info(
     request: Request, user: User = Depends(get_current_user)
-) -> dict[str, str]:
+) -> dict[str, bool | str]:
     return {
         "user_id": str(user.id),
         "email": user.email,
         "client_ip": get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
+        "two_factor_enabled": bool(user.two_factor_enabled),
     }
