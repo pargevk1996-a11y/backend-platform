@@ -1,12 +1,79 @@
+#
+# Production compose stack.
+#
+# Secrets (RSA keys, Fernet key, peppers, SMTP pw, DB / Redis passwords) are
+# injected as Docker Secrets files at /run/secrets/* and consumed via the
+# `<FIELD>_FILE` env-var convention. Plain-text env vars are reserved for
+# non-sensitive configuration only.
+#
+# Required files in ./secrets/ (relative to this compose file's directory when
+# launched with `--project-directory ../../`):
+#   secrets/jwt_private.pem
+#   secrets/jwt_public.pem
+#   secrets/totp_fernet.key
+#   secrets/refresh_token_pepper.txt
+#   secrets/privacy_key_pepper.txt
+#   secrets/password_reset_pepper.txt
+#   secrets/smtp_password.txt
+#   secrets/auth_db_password.txt
+#   secrets/user_db_password.txt
+#   secrets/redis_password.txt
+#
+# chmod 600 secrets/*
+#
+
+x-app-security: &app_security
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+
+secrets:
+  jwt_private_key:
+    file: ../../secrets/jwt_private.pem
+  jwt_public_key:
+    file: ../../secrets/jwt_public.pem
+  totp_fernet_key:
+    file: ../../secrets/totp_fernet.key
+  refresh_token_pepper:
+    file: ../../secrets/refresh_token_pepper.txt
+  privacy_key_pepper:
+    file: ../../secrets/privacy_key_pepper.txt
+  password_reset_pepper:
+    file: ../../secrets/password_reset_pepper.txt
+  smtp_password:
+    file: ../../secrets/smtp_password.txt
+  auth_db_password:
+    file: ../../secrets/auth_db_password.txt
+  user_db_password:
+    file: ../../secrets/user_db_password.txt
+  redis_password:
+    file: ../../secrets/redis_password.txt
+
 services:
   postgres-auth:
-    image: postgres:16
-    container_name: postgres-auth
+    image: postgres:16.4-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: auth_service
       POSTGRES_USER: auth_service
-      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/auth_db_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - auth_db_password
     volumes:
       - postgres_auth_data:/var/lib/postgresql/data
     healthcheck:
@@ -14,17 +81,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 10s
     networks:
       - backend
+    mem_limit: 1g
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 
   postgres-user:
-    image: postgres:16
-    container_name: postgres-user
+    image: postgres:16.4-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: user_service
       POSTGRES_USER: user_service
-      POSTGRES_PASSWORD: ${USER_DB_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/user_db_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - user_db_password
     volumes:
       - postgres_user_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,117 +107,282 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 10s
     networks:
       - backend
+    mem_limit: 1g
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 
   redis:
-    image: redis:7-alpine
-    container_name: redis
+    image: redis:7.4-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    # redis-server takes password on CLI (no native _FILE support). We read
+    # the secret file inside the same shell and pass it via --requirepass.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export REDIS_PASSWORD="$$(cat /run/secrets/redis_password)"
+        exec redis-server \
+          --appendonly yes \
+          --save 60 1000 \
+          --requirepass "$$REDIS_PASSWORD"
+    secrets:
+      - redis_password
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping"]
+      test:
+        - "CMD-SHELL"
+        - 'redis-cli --no-auth-warning -a "$$(cat /run/secrets/redis_password)" ping | grep -q PONG'
       interval: 10s
       timeout: 5s
       retries: 10
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      start_period: 5s
     networks:
       - backend
+    mem_limit: 512m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 
-  auth-service:
+  # ---- migrations -------------------------------------------------------
+
+  auth-migrate:
+    <<: *app_security
     build:
       context: ../..
-      dockerfile: infra/docker/auth-service.Dockerfile
-    container_name: auth-service
-    restart: unless-stopped
-    env_file:
-      - ../../services/auth-service/.env
+      dockerfile: Dockerfile
+      target: auth-service
+    restart: "no"
+    # alembic needs to write a tmp file when loading async engines
+    entrypoint: ["/usr/bin/tini", "--"]
+    command: ["alembic", "upgrade", "head"]
+    secrets:
+      - jwt_private_key
+      - jwt_public_key
+      - totp_fernet_key
+      - refresh_token_pepper
+      - privacy_key_pepper
+      - password_reset_pepper
     environment:
+      SERVICE_NAME: auth-service
+      SERVICE_ENV: production
+      SERVICE_PORT: 8001
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS}
+      # asyncpg reads password from URL; compose pre-interpolates AUTH_DB_PASSWORD
+      # from .env. For migrations this is acceptable since the env is sourced once.
       DATABASE_URL: postgresql+asyncpg://auth_service:${AUTH_DB_PASSWORD}@postgres-auth:5432/auth_service
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      SERVICE_ENV: production
-      TRUSTED_PROXY_IPS: 172.16.0.0/12
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      JWT_ISSUER: ${JWT_ISSUER:-backend-platform}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-backend-clients}
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      TOTP_ENCRYPTION_KEY_FILE: /run/secrets/totp_fernet_key
+      REFRESH_TOKEN_HASH_PEPPER_FILE: /run/secrets/refresh_token_pepper
+      PRIVACY_KEY_PEPPER_FILE: /run/secrets/privacy_key_pepper
+      PASSWORD_RESET_TOKEN_PEPPER_FILE: /run/secrets/password_reset_pepper
+      TOTP_ISSUER: ${TOTP_ISSUER:-Backend Platform}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      SMTP_REQUIRE_DELIVERY: ${SMTP_REQUIRE_DELIVERY:-true}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
     depends_on:
       postgres-auth:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/health/live', timeout=2)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     networks:
       - backend
 
-  user-service:
+  user-migrate:
+    <<: *app_security
     build:
       context: ../..
-      dockerfile: infra/docker/user-service.Dockerfile
-    container_name: user-service
-    restart: unless-stopped
-    env_file:
-      - ../../services/user-service/.env
+      dockerfile: Dockerfile
+      target: user-service
+    restart: "no"
+    entrypoint: ["/usr/bin/tini", "--"]
+    command: ["alembic", "upgrade", "head"]
+    secrets:
+      - jwt_public_key
+      - privacy_key_pepper
     environment:
+      SERVICE_NAME: user-service
+      SERVICE_ENV: production
+      SERVICE_PORT: 8002
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS}
       DATABASE_URL: postgresql+asyncpg://user_service:${USER_DB_PASSWORD}@postgres-user:5432/user_service
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
-      SERVICE_ENV: production
-      TRUSTED_PROXY_IPS: 172.16.0.0/12
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      JWT_ISSUER: ${JWT_ISSUER:-backend-platform}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-backend-clients}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      PRIVACY_KEY_PEPPER_FILE: /run/secrets/privacy_key_pepper
     depends_on:
       postgres-user:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/health/live', timeout=2)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     networks:
       - backend
 
-  api-gateway:
+  # ---- application services --------------------------------------------
+
+  auth-service:
+    <<: *app_security
     build:
       context: ../..
-      dockerfile: infra/docker/gateway.Dockerfile
-    container_name: api-gateway
+      dockerfile: Dockerfile
+      target: auth-service
     restart: unless-stopped
-    env_file:
-      - ../../services/api-gateway/.env
+    secrets:
+      - jwt_private_key
+      - jwt_public_key
+      - totp_fernet_key
+      - refresh_token_pepper
+      - privacy_key_pepper
+      - password_reset_pepper
+      - smtp_password
     environment:
+      SERVICE_NAME: auth-service
+      SERVICE_ENV: production
+      SERVICE_PORT: 8001
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS}
+      DATABASE_URL: postgresql+asyncpg://auth_service:${AUTH_DB_PASSWORD}@postgres-auth:5432/auth_service
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      JWT_ISSUER: ${JWT_ISSUER:-backend-platform}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-backend-clients}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      TOTP_ENCRYPTION_KEY_FILE: /run/secrets/totp_fernet_key
+      REFRESH_TOKEN_HASH_PEPPER_FILE: /run/secrets/refresh_token_pepper
+      PRIVACY_KEY_PEPPER_FILE: /run/secrets/privacy_key_pepper
+      PASSWORD_RESET_TOKEN_PEPPER_FILE: /run/secrets/password_reset_pepper
+      TOTP_ISSUER: ${TOTP_ISSUER:-Backend Platform}
+      TOTP_CODE_DIGITS: ${TOTP_CODE_DIGITS:-6}
+      TOTP_INTERVAL_SECONDS: ${TOTP_INTERVAL_SECONDS:-30}
+      LOGIN_CHALLENGE_TTL_SECONDS: ${LOGIN_CHALLENGE_TTL_SECONDS:-300}
+      PASSWORD_RESET_TOKEN_TTL_SECONDS: ${PASSWORD_RESET_TOKEN_TTL_SECONDS:-900}
+      SESSION_IDLE_TIMEOUT_SECONDS: ${SESSION_IDLE_TIMEOUT_SECONDS:-1800}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      SMTP_REQUIRE_DELIVERY: ${SMTP_REQUIRE_DELIVERY:-true}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+      UVICORN_WORKERS: ${AUTH_SERVICE_WORKERS:-2}
+    depends_on:
+      auth-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/health/ready', timeout=2)"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - backend
+    mem_limit: 768m
+    cpus: 1.0
+
+  user-service:
+    <<: *app_security
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: user-service
+    restart: unless-stopped
+    secrets:
+      - jwt_public_key
+      - privacy_key_pepper
+    environment:
+      SERVICE_NAME: user-service
+      SERVICE_ENV: production
+      SERVICE_PORT: 8002
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS}
+      DATABASE_URL: postgresql+asyncpg://user_service:${USER_DB_PASSWORD}@postgres-user:5432/user_service
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      JWT_ISSUER: ${JWT_ISSUER:-backend-platform}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-backend-clients}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      PRIVACY_KEY_PEPPER_FILE: /run/secrets/privacy_key_pepper
+      UVICORN_WORKERS: ${USER_SERVICE_WORKERS:-2}
+    depends_on:
+      user-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/health/ready', timeout=2)"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - backend
+    mem_limit: 512m
+    cpus: 0.75
+
+  app:
+    <<: *app_security
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: api-gateway
+    restart: unless-stopped
+    secrets:
+      - jwt_public_key
+      - privacy_key_pepper
+    environment:
+      SERVICE_NAME: api-gateway
+      SERVICE_ENV: production
+      SERVICE_PORT: 8000
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       AUTH_SERVICE_URL: http://auth-service:8001
       USER_SERVICE_URL: http://user-service:8002
-      SERVICE_ENV: production
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      JWT_ISSUER: ${JWT_ISSUER:-backend-platform}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-backend-clients}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      PRIVACY_KEY_PEPPER_FILE: /run/secrets/privacy_key_pepper
+      UPSTREAM_TIMEOUT_SECONDS: ${UPSTREAM_TIMEOUT_SECONDS:-10}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
+      RATE_LIMIT_PUBLIC_AUTH_PER_MINUTE: ${RATE_LIMIT_PUBLIC_AUTH_PER_MINUTE:-30}
+      RATE_LIMIT_PROTECTED_PER_MINUTE: ${RATE_LIMIT_PROTECTED_PER_MINUTE:-120}
+      RATE_LIMIT_GLOBAL_PER_MINUTE: ${RATE_LIMIT_GLOBAL_PER_MINUTE:-300}
+      UVICORN_WORKERS: ${APP_WORKERS:-2}
     depends_on:
       auth-service:
         condition: service_healthy
@@ -150,34 +390,66 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "${GATEWAY_PORT:-8080}:8000"
     healthcheck:
       test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health/live', timeout=2)",
-        ]
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health/ready', timeout=2)"
       interval: 15s
       timeout: 5s
       retries: 10
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
+      start_period: 15s
     networks:
       - backend
       - edge
+    mem_limit: 512m
+    cpus: 1.0
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_UPSTREAM: app:8000
+      SERVER_NAME: ${SERVER_NAME:-_}
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-2m}
+      PROXY_READ_TIMEOUT: ${PROXY_READ_TIMEOUT:-30s}
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+      - /etc/nginx/conf.d
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - edge
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 
 networks:
   backend:
     internal: true
+    driver: bridge
   edge:
+    driver: bridge
 
 volumes:
   postgres_auth_data:
