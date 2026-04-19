@@ -21,7 +21,7 @@ All commands assume `$PWD` is the repository root
 | `REDIS_PASSWORD`             | `infra/compose/.env.compose`                 | `services/{auth,user,api-gateway}/.env` (in REDIS_URL) |
 | `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` | `services/auth-service/.env`         | `services/{user-service,api-gateway}/.env` (public key only) |
 | `REFRESH_TOKEN_HASH_PEPPER`  | `services/auth-service/.env`                 | —                                 |
-| `PRIVACY_KEY_PEPPER`         | `services/{auth,user,api-gateway}/.env`      | **MUST be identical across services** |
+| `PRIVACY_KEY_PEPPER`         | `services/{auth,user,api-gateway}/.env`      | Per-service value (each service hashes only its own data) |
 | `PASSWORD_RESET_TOKEN_PEPPER`| `services/auth-service/.env`                 | —                                 |
 | `TOTP_ENCRYPTION_KEY`        | `services/auth-service/.env`                 | —                                 |
 | `SMTP_PASSWORD` (Gmail/SES)  | `services/auth-service/.env`                 | — (external provider)             |
@@ -66,9 +66,12 @@ What it does:
   real newlines inside the PEM, wrapped in `"…"` so python-dotenv unescapes).
 - Fresh `TOTP_ENCRYPTION_KEY` via `Fernet.generate_key()`.
 - Three 48-byte peppers (`REFRESH_TOKEN_HASH_PEPPER`, `PRIVACY_KEY_PEPPER`,
-  `PASSWORD_RESET_TOKEN_PEPPER`). The script keeps `PRIVACY_KEY_PEPPER`
-  **identical** across auth / user / gateway, which is required for HMAC
-  parity in audit digests, rate-limit keys and login challenge fingerprints.
+  `PASSWORD_RESET_TOKEN_PEPPER`). The generator intentionally issues a
+  **distinct** `PRIVACY_KEY_PEPPER` per service: each service hashes only
+  local data (its own audit log, its own Redis rate-limit bucket, its own
+  brute-force identifiers), so cross-service parity is neither required nor
+  desirable (compromise of one pepper shouldn't help decode another
+  service's digests).
 - `AUTH_DB_PASSWORD`, `USER_DB_PASSWORD`, `REDIS_PASSWORD` — 24-byte
   url-safe values, stored both in `infra/compose/.env.compose` and
   expanded into `DATABASE_URL`/`REDIS_URL` in every service env.
@@ -89,10 +92,14 @@ grep ^AUTH_DB_PASSWORD infra/compose/.env.compose
 grep ^USER_DB_PASSWORD infra/compose/.env.compose
 grep ^REDIS_PASSWORD   infra/compose/.env.compose
 grep ^TOTP_ENCRYPTION_KEY services/auth-service/.env
+# Each of these should hold a different 48-byte value:
 grep ^PRIVACY_KEY_PEPPER   services/auth-service/.env services/user-service/.env services/api-gateway/.env
 ```
 
-The three `PRIVACY_KEY_PEPPER` lines must match byte-for-byte.
+The DB/Redis passwords embedded in `DATABASE_URL` / `REDIS_URL` inside each
+service `.env` are regenerated in lockstep with `infra/compose/.env.compose`
+so that the compose stack keeps working; they will not match the
+pre-rotation values.
 
 ---
 
@@ -236,7 +243,7 @@ For non-JWT secrets in production:
 - [ ] Old Gmail / SES credential disabled at provider
 - [ ] Old JWT private key securely destroyed
 - [ ] Old DB/Redis passwords overwritten on every host
-- [ ] `PRIVACY_KEY_PEPPER` identical across auth / user / gateway
+- [ ] `PRIVACY_KEY_PEPPER` regenerated (per-service values, not shared)
 - [ ] `docker compose ps` shows all services healthy
 - [ ] Login + refresh + logout flow validated manually (Step 5)
 - [ ] Full test suite green (Step 6)
