@@ -117,7 +117,6 @@ def main() -> None:
             "SMTP_PORT=587",
             "SMTP_USERNAME=",
             f"SMTP_PASSWORD={smtp_password}",
-            "SMTP_REQUIRE_DELIVERY=false",
             "SMTP_USE_TLS=true",
             "SMTP_FROM_EMAIL=",
             "AUTH_ALLOW_MISSING_SMTP=true",
