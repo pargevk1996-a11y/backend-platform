@@ -2,6 +2,7 @@
 .env
 **/.env
 infra/compose/.env.compose
+infra/nginx/certs/
 
 # Local editor/agent metadata — never commit
 .codex
@@ -16,3 +17,18 @@ infra/compose/.env.compose
 **/codex/
 **/cursor
 **/cursor/
+
+# Python / tooling / build output
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+build/
+dist/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+**/*.egg-info/
