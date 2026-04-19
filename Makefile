@@ -1,19 +1,23 @@
-.PHONY: help deps test test-auth test-user test-gateway test-notification test-e2e-auth test-e2e-stack lint-auth lint-user lint-gateway lint-notification migrate-auth migrate-user run-auth run-user run-gateway run-notification up down
+.PHONY: help deps test test-auth test-user test-gateway test-notification test-shared test-e2e-auth test-e2e-stack lint lint-auth lint-user lint-gateway lint-notification lint-shared ci migrate-auth migrate-user run-auth run-user run-gateway run-notification up down
 
 help:
 	@echo "Available targets:"
-	@echo "  deps            - install auth-service dependencies into .venv"
-	@echo "  test            - run all tests for all services"
+	@echo "  deps            - install all service dependencies into .venv"
+	@echo "  test            - run all tests across services + shared"
 	@echo "  test-auth       - run all auth-service tests"
 	@echo "  test-user       - run all user-service tests"
 	@echo "  test-gateway    - run all api-gateway tests"
 	@echo "  test-notification - run notification-service tests"
+	@echo "  test-shared     - run shared-python tests"
 	@echo "  test-e2e-auth   - run gateway auth security e2e flow (stack must be up)"
 	@echo "  test-e2e-stack  - run full docker e2e stack test with migrations and teardown"
+	@echo "  lint            - run ruff across services + shared"
 	@echo "  lint-auth       - run ruff for auth-service"
 	@echo "  lint-user       - run ruff for user-service"
 	@echo "  lint-gateway    - run ruff for api-gateway"
 	@echo "  lint-notification - run ruff for notification-service"
+	@echo "  lint-shared     - run ruff for shared-python"
+	@echo "  ci              - full pre-push check: lint + test across services + shared"
 	@echo "  migrate-auth    - apply auth-service alembic migrations"
 	@echo "  migrate-user    - apply user-service alembic migrations"
 	@echo "  run-auth        - run auth-service locally"
@@ -29,8 +33,11 @@ deps:
 	.venv/bin/pip install -r services/user-service/requirements.lock
 	.venv/bin/pip install -r services/api-gateway/requirements.lock
 	.venv/bin/pip install -r services/notification-service/requirements.lock
+	# Make the shared-python source importable inside the venv without
+	# shelling out to pip (editable installs need setuptools + network).
+	echo "$(shell pwd)/shared/python/src" > .venv/lib/python3.12/site-packages/zz-shared-python.pth
 
-test: test-auth test-user test-gateway test-notification
+test: test-auth test-user test-gateway test-notification test-shared
 
 test-auth:
 	PYTHONPATH=services/auth-service .venv/bin/python -m pytest -q services/auth-service/tests
@@ -44,11 +51,16 @@ test-gateway:
 test-notification:
 	PYTHONPATH=services/notification-service .venv/bin/python -m pytest -q services/notification-service/tests
 
+test-shared:
+	PYTHONPATH=shared/python/src .venv/bin/python -m pytest -q shared/python/tests
+
 test-e2e-auth:
 	GATEWAY_BASE_URL=$${GATEWAY_BASE_URL:-http://localhost:8000} .venv/bin/python -m pytest -q tests/e2e/test_gateway_auth_security_flow.py
 
 test-e2e-stack:
 	infra/scripts/run_e2e_stack.sh
+
+lint: lint-auth lint-user lint-gateway lint-notification lint-shared
 
 lint-auth:
 	.venv/bin/python -m ruff check services/auth-service
@@ -61,6 +73,13 @@ lint-gateway:
 
 lint-notification:
 	.venv/bin/python -m ruff check services/notification-service
+
+lint-shared:
+	.venv/bin/python -m ruff check shared/python
+
+ci: lint test
+	@echo
+	@echo "✔ Local CI contract green: ruff + pytest across services + shared."
 
 migrate-auth:
 	docker compose --env-file infra/compose/.env.compose -f infra/compose/docker-compose.dev.yml run --rm auth-service alembic upgrade head
