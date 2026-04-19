@@ -108,6 +108,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("SMTP_FROM_EMAIL", "smtp_from_email"),
     )
+    auth_allow_missing_smtp: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("AUTH_ALLOW_MISSING_SMTP", "auth_allow_missing_smtp"),
+    )
 
     argon2_time_cost: int = 3
     argon2_memory_cost: int = 65536
@@ -179,8 +183,11 @@ class Settings(BaseSettings):
         public_key = self.jwt_public_key_value
         if "BEGIN" not in private_key or "BEGIN" not in public_key:
             raise ValueError("Deployed asymmetric JWT keys must be PEM-formatted")
-        if not self.smtp_is_configured:
-            raise ValueError("Staging and production require configured SMTP delivery")
+        if not self.smtp_is_configured and not self.auth_allow_missing_smtp:
+            raise ValueError(
+                "Staging and production require configured SMTP delivery "
+                "(set AUTH_ALLOW_MISSING_SMTP=true when outbound email is intentionally disabled)"
+            )
 
         return self
 
