@@ -28,7 +28,23 @@ const state = {
 };
 
 function baseUrl() {
-  return $("baseUrl").value.replace(/\/+$/, "");
+  const raw = $("baseUrl").value.replace(/\/+$/, "");
+  if (raw) {
+    return raw;
+  }
+  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+    return window.location.origin;
+  }
+  return "http://localhost:8000";
+}
+
+/** When the UI is served from the gateway over http(s), default API calls to the same origin (fixes IP/domain deploys). */
+function syncGatewayBaseUrlFromPage() {
+  const el = $("baseUrl");
+  if (!el) return;
+  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+    el.value = window.location.origin;
+  }
 }
 
 function setStatus(message, isError) {
@@ -487,6 +503,7 @@ $("logoutBtn").addEventListener("click", async () => {
   }
 });
 
+syncGatewayBaseUrlFromPage();
 resetQr();
 setFormMode("register");
 setSetupEnabled(false);
