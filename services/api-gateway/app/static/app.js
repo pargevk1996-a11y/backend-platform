@@ -21,10 +21,10 @@ const state = {
   tokens: null,
   loading: false,
   needs2fa: false,
-  canSetup2fa: false,
   challengeId: null,
   formMode: "register",
-  qrReady: false,
+  /** @type {boolean | null} null = not loaded yet */
+  twoFactorEnabled: null,
 };
 
 function baseUrl() {
@@ -38,7 +38,7 @@ function baseUrl() {
   return "http://localhost:8000";
 }
 
-/** When the UI is served from the gateway over http(s), default API calls to the same origin (fixes IP/domain deploys). */
+/** When the UI is opened over http(s) (e.g. EC2 :8080), use the same origin as the API base. */
 function syncGatewayBaseUrlFromPage() {
   const el = $("baseUrl");
   if (!el) return;
@@ -66,35 +66,16 @@ function setResult(value, isError) {
 
 function setLoading(isLoading) {
   state.loading = isLoading;
-  [
-    "login2faBtn",
-  ].forEach((id) => {
+  ["login2faBtn", "sessionEnable2faBtn", "sessionDisable2faBtn", "registerEnable2faBtn", "logoutBtn"].forEach((id) => {
     const el = $(id);
     if (el) el.disabled = isLoading;
   });
-  refreshAccountState();
-  refreshSetupState();
+  updateSessionChrome();
 }
 
 function setTwoFaStep(visible) {
   $("twoFaStep").classList.toggle("hidden", !visible);
   state.needs2fa = visible;
-}
-
-function setSetupEnabled(enabled) {
-  state.canSetup2fa = enabled;
-  refreshSetupState();
-}
-
-function refreshSetupState() {
-  const isSignedIn = hasActiveSession();
-  const canSetup = state.canSetup2fa && Boolean(state.tokens?.access_token);
-  $("setup2faBtn").disabled = !canSetup || state.loading;
-  $("enable2faBtn").disabled = !isSignedIn || !state.qrReady || state.loading;
-  $("logoutBtn").disabled = !state.tokens?.refresh_token || state.loading;
-  $("setupNote").textContent = canSetup
-    ? "Create a QR now, scan it, then enter the authenticator code."
-    : "Sign in or create an account to enable 2FA.";
 }
 
 function hasActiveSession() {
@@ -106,10 +87,10 @@ function formGuideText(mode) {
     return "Active session. Sign out before creating another account, signing in, or resetting a password.";
   }
   if (mode === "register") {
-    return "Register: enter your email and password, then click \"Create account\". You can enable 2FA after the account is created.";
+    return "Register: enter your email and password, then click \"Create account\".";
   }
   if (mode === "login") {
-    return "Login: enter your email and password, then click \"Sign in\". If 2FA is not enabled yet, you can enable it after sign-in.";
+    return "Login: enter your email and password, then click \"Sign in\".";
   }
   return "Reset password: request a 6-digit code by email, then enter the code and a new password.";
 }
@@ -135,6 +116,7 @@ function setFormMode(mode) {
   $("chooseLogin").classList.toggle("active", isLogin);
   $("chooseReset").classList.toggle("active", isReset);
   refreshAccountState();
+  updateSessionChrome();
 }
 
 function bindEnter(inputIds, buttonId, isVisible) {
@@ -152,53 +134,111 @@ function bindEnter(inputIds, buttonId, isVisible) {
   });
 }
 
-function resetQr() {
-  state.qrReady = false;
-  $("qrImage").classList.remove("visible");
-  $("qrImage").removeAttribute("src");
-  $("qrEmpty").classList.remove("hidden");
-  refreshSetupState();
+function wirePasswordToggles() {
+  document.querySelectorAll(".password-toggle[data-password-target]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-password-target");
+      const input = document.getElementById(id);
+      if (!input) return;
+      const showPlain = input.type === "password";
+      input.type = showPlain ? "text" : "password";
+      const hidden = !showPlain;
+      btn.setAttribute("aria-label", hidden ? "Show password" : "Hide password");
+      btn.setAttribute("title", hidden ? "Show password" : "Hide password");
+      btn.setAttribute("aria-pressed", showPlain ? "true" : "false");
+    });
+  });
 }
 
-function loadStoredTokens() {
+function openModal(backdropEl) {
+  backdropEl.classList.remove("hidden");
+  backdropEl.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function closeModal(backdropEl) {
+  backdropEl.classList.add("hidden");
+  backdropEl.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function wireModalDismiss(backdropEl, dialogSelector) {
+  const dialog = backdropEl.querySelector(dialogSelector);
+  backdropEl.addEventListener("click", (e) => {
+    if (e.target === backdropEl) closeModal(backdropEl);
+  });
+  backdropEl.querySelectorAll("[data-close-modal]").forEach((btn) => {
+    btn.addEventListener("click", () => closeModal(backdropEl));
+  });
+  if (dialog) {
+    dialog.addEventListener("click", (e) => e.stopPropagation());
+  }
+}
+
+async function getJson(path, token) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(baseUrl() + path, { method: "GET", headers });
+  const text = await res.text();
+  let body = text;
   try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const tokens = JSON.parse(raw);
-    if (tokens?.access_token && tokens?.refresh_token) return tokens;
+    body = JSON.parse(text);
+  } catch (_) {}
+  if (!res.ok) {
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      body.status = res.status;
+    } else {
+      body = { message: body || "Request failed.", status: res.status };
+    }
+    throw body;
+  }
+  return body;
+}
+
+async function refreshTwoFactorStatus() {
+  if (!hasActiveSession()) {
+    state.twoFactorEnabled = null;
+    updateSessionChrome();
+    return;
+  }
+  const token = state.tokens?.access_token;
+  if (!token) {
+    state.twoFactorEnabled = null;
+    updateSessionChrome();
+    return;
+  }
+  try {
+    const data = await getJson("/v1/sessions/me", token);
+    state.twoFactorEnabled = Boolean(data.two_factor_enabled);
   } catch (_) {
-    // Ignore malformed local state and force a clean sign-in.
+    state.twoFactorEnabled = null;
   }
-  localStorage.removeItem(SESSION_STORAGE_KEY);
-  return null;
+  updateSessionChrome();
 }
 
-function saveTokens(tokens) {
-  if (!tokens?.access_token || !tokens?.refresh_token) return;
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(tokens));
-}
+function updateSessionChrome() {
+  const layout = $("mainLayout");
+  const sessionAside = $("sessionAside");
+  const signedIn = hasActiveSession();
+  const reg = state.formMode === "register";
+  const en = state.twoFactorEnabled;
+  const showSessionColumn = signedIn;
+  const showRegisterEnable = signedIn && reg && en === false;
+  const showSessionEnable = signedIn && !reg && en === false;
+  const showDisable = signedIn && en === true;
 
-function clearStoredTokens() {
-  localStorage.removeItem(SESSION_STORAGE_KEY);
-}
+  layout.classList.toggle("layout--guest", !showSessionColumn);
+  sessionAside.classList.toggle("hidden", !showSessionColumn);
 
-function setTokens(tokens) {
-  state.tokens = tokens;
-  if (tokens) {
-    saveTokens(tokens);
-  } else {
-    clearStoredTokens();
-  }
-  refreshAccountState();
-  refreshSetupState();
-}
+  const regRow = $("registerEnable2faRow");
+  if (regRow) regRow.classList.toggle("hidden", !showRegisterEnable);
+  $("sessionEnable2faBtn").classList.toggle("hidden", !showSessionEnable);
+  $("sessionDisable2faBtn").classList.toggle("hidden", !showDisable);
 
-function clearSession() {
-  setTokens(null);
-  state.challengeId = null;
-  setTwoFaStep(false);
-  setSetupEnabled(false);
-  resetQr();
+  $("sessionEnable2faBtn").disabled = state.loading || en !== false;
+  $("sessionDisable2faBtn").disabled = state.loading || en !== true;
+  $("registerEnable2faBtn").disabled = state.loading || en !== false;
+  $("logoutBtn").disabled = !state.tokens?.refresh_token || state.loading;
 }
 
 async function post(path, payload, token) {
@@ -231,36 +271,47 @@ function handleTokens(body) {
   if (tokens?.access_token && tokens?.refresh_token) setTokens(tokens);
 }
 
-async function restoreStoredSession() {
-  const stored = loadStoredTokens();
-  if (!stored) {
-    refreshSetupState();
-    return;
-  }
-
-  setTokens(stored);
-  setTwoFaStep(false);
-  setSetupEnabled(true);
-  setStatus("Restoring session...", false);
-  setResult("Restoring session...", false);
-
+function loadStoredTokens() {
   try {
-    const body = await post("/v1/tokens/refresh", {
-      refresh_token: stored.refresh_token,
-    });
-    handleTokens(body);
-    setStatus("Session restored.", false);
-    setResult({ status: "session_restored", tokens: state.tokens }, false);
-  } catch (err) {
-    if ([400, 401, 403].includes(err.status)) {
-      clearSession();
-      setStatus("Session expired. Sign in again.", true);
-    } else {
-      setSetupEnabled(true);
-      setStatus("Session kept locally. Refresh failed.", true);
-    }
-    setResult(err, true);
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const tokens = JSON.parse(raw);
+    if (tokens?.access_token && tokens?.refresh_token) return tokens;
+  } catch (_) {
+    // Ignore malformed local state and force a clean sign-in.
   }
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+  return null;
+}
+
+function saveTokens(tokens) {
+  if (!tokens?.access_token || !tokens?.refresh_token) return;
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(tokens));
+}
+
+function clearStoredTokens() {
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+function setTokens(tokens) {
+  state.tokens = tokens;
+  if (tokens) {
+    saveTokens(tokens);
+  } else {
+    clearStoredTokens();
+  }
+  refreshAccountState();
+  void refreshTwoFactorStatus();
+}
+
+function clearSession() {
+  setTokens(null);
+  state.challengeId = null;
+  state.twoFactorEnabled = null;
+  setTwoFaStep(false);
+  resetEnableModal();
+  resetDisableModal();
+  updateSessionChrome();
 }
 
 function redactTokens(payload) {
@@ -292,6 +343,122 @@ function ensureTotp(value) {
   return code;
 }
 
+function resetEnableModal() {
+  $("modalQrImage").removeAttribute("src");
+  $("modalEnableTotp").value = "";
+  $("modalBackupList").innerHTML = "";
+  $("modalEnableStepConfirm").classList.remove("hidden");
+  $("modalEnableStepDone").classList.add("hidden");
+}
+
+function resetDisableModal() {
+  $("modalDisablePassword").value = "";
+  $("modalDisableTotp").value = "";
+  $("modalDisableBackup").value = "";
+}
+
+async function startEnable2faFlow() {
+  setLoading(true);
+  setStatus("Preparing 2FA setup...", false);
+  try {
+    const token = ensureAccessToken();
+    resetEnableModal();
+    const body = await post("/v1/two-factor/setup", {}, token);
+    if (!body.qr_png_base64) throw { message: "No QR in response" };
+    $("modalQrImage").src = `data:image/png;base64,${body.qr_png_base64}`;
+    $("modalQrImage").alt = "TOTP QR code";
+    $("modalEnableStepConfirm").classList.remove("hidden");
+    $("modalEnableStepDone").classList.add("hidden");
+    openModal($("enable2faModal"));
+    setStatus("Scan the QR in the dialog, then confirm with a code.", false);
+  } catch (err) {
+    setStatus(err.message || "2FA setup failed.", true);
+    setResult(err, true);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function confirmEnable2faFromModal() {
+  setLoading(true);
+  setStatus("Enabling 2FA...", false);
+  try {
+    const token = ensureAccessToken();
+    const totp = ensureTotp($("modalEnableTotp").value);
+    const body = await post("/v1/two-factor/enable", { totp_code: totp }, token);
+    $("modalEnableStepConfirm").classList.add("hidden");
+    $("modalEnableStepDone").classList.remove("hidden");
+    const codes = body.backup_codes;
+    const ul = $("modalBackupList");
+    ul.innerHTML = "";
+    if (Array.isArray(codes)) {
+      codes.forEach((c) => {
+        const li = document.createElement("li");
+        const code = document.createElement("code");
+        code.textContent = c;
+        code.className = "backup-code";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn--tiny btn--ghost";
+        btn.textContent = "Copy";
+        btn.addEventListener("click", () => {
+          void navigator.clipboard.writeText(c).then(() => setStatus("Copied to clipboard.", false));
+        });
+        li.appendChild(code);
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+    }
+    setStatus("2FA enabled. Store your backup codes safely.", false);
+    setResult(body, false);
+    await refreshTwoFactorStatus();
+  } catch (err) {
+    setStatus(err.message || "Enable 2FA failed.", true);
+    setResult(err, true);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function submitDisable2faFromModal() {
+  setLoading(true);
+  setStatus("Disabling 2FA...", false);
+  try {
+    const token = ensureAccessToken();
+    const password = $("modalDisablePassword").value;
+    if (!password) {
+      setStatus("Password is required.", true);
+      return;
+    }
+    const totpRaw = $("modalDisableTotp").value.trim();
+    const backupRaw = $("modalDisableBackup").value.trim();
+    if (totpRaw && backupRaw) {
+      setStatus("Provide either a TOTP code or a backup code, not both.", true);
+      return;
+    }
+    if (!totpRaw && !backupRaw) {
+      setStatus("Provide a TOTP code or a backup code.", true);
+      return;
+    }
+    const payload = {
+      password,
+      totp_code: totpRaw ? ensureTotp(totpRaw) : null,
+      backup_code: backupRaw || null,
+    };
+    const body = await post("/v1/two-factor/disable", payload, token);
+    closeModal($("disable2faModal"));
+    resetDisableModal();
+    setStatus("Two-factor authentication disabled.", false);
+    setResult(body, false);
+    await refreshTwoFactorStatus();
+  } catch (err) {
+    setStatus(err.message || "Disable 2FA failed.", true);
+    setResult(err, true);
+  } finally {
+    setLoading(false);
+  }
+}
+
 $("regBtn").addEventListener("click", async () => {
   setLoading(true);
   setStatus("Registering...", false);
@@ -308,10 +475,10 @@ $("regBtn").addEventListener("click", async () => {
     });
     handleTokens(body);
     setTwoFaStep(false);
-    setSetupEnabled(true);
     $("regPassword").value = "";
     setStatus("Account created.", false);
     setResult(body, false);
+    await refreshTwoFactorStatus();
   } catch (err) {
     setStatus(err.message || "Registration failed.", true);
     setResult(err, true);
@@ -331,13 +498,13 @@ $("loginBtn").addEventListener("click", async () => {
     });
     handleTokens(body);
     if (body.requires_2fa) {
-      setStatus("2FA required. Complete the 2FA step below.", false);
+      setStatus("2FA required. Enter the code from your authenticator.", false);
       setTwoFaStep(true);
-      setSetupEnabled(false);
+      await refreshTwoFactorStatus();
     } else {
       setStatus("Signed in.", false);
       setTwoFaStep(false);
-      setSetupEnabled(true);
+      await refreshTwoFactorStatus();
     }
     setResult(body, false);
     $("loginPassword").value = "";
@@ -416,10 +583,10 @@ $("login2faBtn").addEventListener("click", async () => {
     handleTokens(body);
     setStatus("2FA verified.", false);
     setTwoFaStep(false);
-    setSetupEnabled(false);
     setResult(body, false);
     $("totpCode").value = "";
     state.challengeId = null;
+    await refreshTwoFactorStatus();
   } catch (err) {
     setStatus(err.message || "2FA verification failed.", true);
     setResult(err, true);
@@ -428,57 +595,17 @@ $("login2faBtn").addEventListener("click", async () => {
   }
 });
 
-$("setup2faBtn").addEventListener("click", async () => {
-  setLoading(true);
-  setStatus("Creating Google Authenticator QR...", false);
-  setResult("Creating Google Authenticator QR...", false);
-  try {
-    if (!state.canSetup2fa) {
-      setStatus("Sign in or create an account before creating a QR.", true);
-      return;
-    }
-    const token = ensureAccessToken();
-    const body = await post("/v1/two-factor/setup", {}, token);
-    if (body.qr_png_base64) {
-      $("qrImage").src = `data:image/png;base64,${body.qr_png_base64}`;
-      $("qrImage").classList.add("visible");
-      $("qrEmpty").classList.add("hidden");
-      state.qrReady = true;
-      refreshSetupState();
-    }
-    setStatus("QR created. Scan in Google Authenticator.", false);
-    setResult(body, false);
-  } catch (err) {
-    setStatus(err.message || "2FA setup failed.", true);
-    setResult(err, true);
-  } finally {
-    setLoading(false);
-  }
+$("sessionEnable2faBtn").addEventListener("click", () => void startEnable2faFlow());
+$("registerEnable2faBtn").addEventListener("click", () => void startEnable2faFlow());
+
+$("modalConfirmEnableBtn").addEventListener("click", () => void confirmEnable2faFromModal());
+
+$("sessionDisable2faBtn").addEventListener("click", () => {
+  resetDisableModal();
+  openModal($("disable2faModal"));
 });
 
-$("enable2faBtn").addEventListener("click", async () => {
-  setLoading(true);
-  setStatus("Enabling 2FA...", false);
-  setResult("Enabling 2FA...", false);
-  try {
-    const token = ensureAccessToken();
-    const totp = ensureTotp($("enableTotpCode").value);
-    const body = await post("/v1/two-factor/enable", { totp_code: totp }, token);
-    if (body.backup_codes) {
-      setStatus("2FA enabled. Backup codes generated.", false);
-    }
-    resetQr();
-    setSetupEnabled(false);
-    setStatus("2FA enabled.", false);
-    setResult(body, false);
-    $("enableTotpCode").value = "";
-  } catch (err) {
-    setStatus(err.message || "Enable 2FA failed.", true);
-    setResult(err, true);
-  } finally {
-    setLoading(false);
-  }
-});
+$("modalDisableSubmitBtn").addEventListener("click", () => void submitDisable2faFromModal());
 
 $("logoutBtn").addEventListener("click", async () => {
   setLoading(true);
@@ -504,9 +631,9 @@ $("logoutBtn").addEventListener("click", async () => {
 });
 
 syncGatewayBaseUrlFromPage();
-resetQr();
+wirePasswordToggles();
 setFormMode("register");
-setSetupEnabled(false);
+updateSessionChrome();
 
 $("chooseRegister").addEventListener("click", () => setFormMode("register"));
 $("chooseLogin").addEventListener("click", () => setFormMode("login"));
@@ -517,7 +644,17 @@ bindEnter(["loginEmail", "loginPassword"], "loginBtn", () => !$("formLogin").cla
 bindEnter(["resetEmail"], "resetRequestBtn", () => !$("formReset").classList.contains("hidden"));
 bindEnter(["resetCode", "resetPassword"], "resetConfirmBtn", () => !$("formReset").classList.contains("hidden"));
 bindEnter(["totpCode"], "login2faBtn", () => !$("twoFaStep").classList.contains("hidden"));
-bindEnter(["enableTotpCode"], "enable2faBtn");
+bindEnter(["modalEnableTotp"], "modalConfirmEnableBtn", () => !$("enable2faModal").classList.contains("hidden"));
+bindEnter(["modalDisablePassword", "modalDisableTotp", "modalDisableBackup"], "modalDisableSubmitBtn", () => !$("disable2faModal").classList.contains("hidden"));
+
+wireModalDismiss($("enable2faModal"), ".modal__dialog");
+wireModalDismiss($("disable2faModal"), ".modal__dialog");
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("enable2faModal").classList.contains("hidden")) closeModal($("enable2faModal"));
+  if (!$("disable2faModal").classList.contains("hidden")) closeModal($("disable2faModal"));
+});
 
 window.addEventListener("load", () => {
   setTimeout(() => {
@@ -530,7 +667,6 @@ window.addEventListener("load", () => {
       "resetCode",
       "resetPassword",
       "displayName",
-      "enableTotpCode",
       "totpCode",
     ].forEach((id) => {
       const el = $(id);
@@ -540,3 +676,35 @@ window.addEventListener("load", () => {
     void restoreStoredSession();
   }, 50);
 });
+
+async function restoreStoredSession() {
+  const stored = loadStoredTokens();
+  if (!stored) {
+    updateSessionChrome();
+    return;
+  }
+
+  setTokens(stored);
+  setTwoFaStep(false);
+  setStatus("Restoring session...", false);
+  setResult("Restoring session...", false);
+
+  try {
+    const body = await post("/v1/tokens/refresh", {
+      refresh_token: stored.refresh_token,
+    });
+    handleTokens(body);
+    setStatus("Session restored.", false);
+    setResult({ status: "session_restored", tokens: state.tokens }, false);
+    await refreshTwoFactorStatus();
+  } catch (err) {
+    if ([400, 401, 403].includes(err.status)) {
+      clearSession();
+      setStatus("Session expired. Sign in again.", true);
+    } else {
+      setStatus("Session kept locally. Refresh failed.", true);
+      await refreshTwoFactorStatus();
+    }
+    setResult(err, true);
+  }
+}
