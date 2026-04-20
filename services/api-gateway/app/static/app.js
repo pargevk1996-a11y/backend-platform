@@ -199,8 +199,32 @@ function syncResetPhaseControls() {
   if (confirm) confirm.disabled = locked;
 }
 
+function clearGuestFormFieldsForModeSwitch() {
+  [
+    "regEmail",
+    "regPassword",
+    "loginEmail",
+    "loginPassword",
+    "resetEmail",
+    "resetCode",
+    "resetPassword",
+    "totpCode",
+    "modalEnableTotp",
+  ].forEach((id) => {
+    const el = $(id);
+    if (el) el.value = "";
+  });
+  clearLoginTotpError();
+  clearModalEnableTotpError();
+  resetDisableModal();
+  state.challengeId = null;
+  setTwoFaStep(false);
+  setResult({ message: "Ready." }, false);
+}
+
 function setFormMode(mode) {
   state.formMode = mode;
+  clearGuestFormFieldsForModeSwitch();
   const isRegister = mode === "register";
   const isLogin = mode === "login";
   const isReset = mode === "reset";
@@ -211,6 +235,8 @@ function setFormMode(mode) {
   $("chooseLogin").classList.toggle("active", isLogin);
   $("chooseReset").classList.toggle("active", isReset);
   if (isReset) resetPasswordFlowUi();
+  else state.passwordResetCodeSent = false;
+  syncResetPhaseControls();
   refreshAccountState();
   updateSessionChrome();
 }
@@ -334,7 +360,7 @@ function updateSessionChrome() {
   $("sessionEnable2faBtn").disabled = state.loading || en !== false;
   $("sessionDisable2faBtn").disabled = state.loading || en !== true;
   $("registerEnable2faBtn").disabled = state.loading || en !== false;
-  $("logoutBtn").disabled = !state.tokens?.refresh_token || state.loading;
+  $("logoutBtn").disabled = !hasActiveSession() || state.loading;
 }
 
 async function post(path, payload, token) {
@@ -577,11 +603,7 @@ async function confirmEnable2faFromModal() {
   setStatus("Enabling 2FA...", false);
   try {
     const token = ensureAccessToken();
-    sync/local-main-2026-04-19
     await post("/v1/two-factor/enable", { totp_code: totpRaw }, token);
-    const totp = ensureTotp($("modalEnableTotp").value);
-    await post("/v1/two-factor/enable", { totp_code: totp }, token);
-    main
     closeModal($("enable2faModal"));
     resetEnableModal();
     setStatus("Two-factor authentication is enabled.", false);
@@ -708,11 +730,17 @@ $("resetRequestBtn").addEventListener("click", async () => {
       setStatus("Email is required for password reset.", true);
       return;
     }
-    const body = await post("/v1/auth/password/forgot", { email });
+    await post("/v1/auth/password/forgot", { email });
     state.passwordResetCodeSent = true;
     syncResetPhaseControls();
     setStatus("If the email exists, a reset code was sent. Enter it below with a new password.", false);
-    setResult(body, false);
+    setResult(
+      {
+        message:
+          "Request accepted. If this email is registered, check your inbox for a 6-digit code (and spam folder).",
+      },
+      false
+    );
   } catch (err) {
     const code = String(err?.error_code || "").toUpperCase();
     if (code === "RESET_FLOW_BLOCKED") {
