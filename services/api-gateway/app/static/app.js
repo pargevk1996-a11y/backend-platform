@@ -72,6 +72,11 @@ function sanitizeForPanel(value) {
     return value;
   }
   if (typeof value !== "object") return value;
+  if (!Array.isArray(value) && value.requires_2fa === true) {
+    return {
+      message: "2FA required. Enter your 6-digit authenticator code in the form below.",
+    };
+  }
   if (Array.isArray(value)) return value.map(sanitizeForPanel);
   const out = {};
   for (const [key, val] of Object.entries(value)) {
@@ -766,7 +771,7 @@ $("resetConfirmBtn").addEventListener("click", async () => {
 $("login2faBtn").addEventListener("click", async () => {
   clearLoginTotpError();
   const totpRaw = ($("totpCode").value || "").trim();
-  if (!/^[0-9]{6,8}$/.test(totpRaw)) {
+  if (!/^[0-9]{6}$/.test(totpRaw)) {
     setLoginTotpError();
     return;
   }

@@ -137,35 +137,6 @@ class AuthService:
                 if acct_attempts >= self.settings.brute_force_login_max_attempts:
                     user.login_blocked = True
                     await session.flush()
-                    # #region agent log
-                    try:
-                        import json
-                        import time
-
-                        with open(
-                            "/home/pash666/backend-platform/.cursor/debug-b7feee.log",
-                            "a",
-                            encoding="utf-8",
-                        ) as _lf:
-                            _lf.write(
-                                json.dumps(
-                                    {
-                                        "sessionId": "b7feee",
-                                        "hypothesisId": "H1",
-                                        "location": "auth_service.py:login",
-                                        "message": "login_account_locked_after_attempts",
-                                        "data": {
-                                            "acct_attempts": acct_attempts,
-                                            "max": self.settings.brute_force_login_max_attempts,
-                                        },
-                                        "timestamp": int(time.time() * 1000),
-                                    }
-                                )
-                                + "\n"
-                            )
-                    except Exception:
-                        pass
-                    # #endregion
             await self.audit_service.log_event(
                 session,
                 event_type=AUDIT_LOGIN_FAILED,
@@ -177,6 +148,8 @@ class AuthService:
                 payload={"email": normalized_email},
             )
             await session.commit()
+            if user is not None and user.login_blocked:
+                raise AccountLoginBlockedException(self.settings.account_login_locked_message)
             raise InvalidCredentialsException()
 
         if user is None:
