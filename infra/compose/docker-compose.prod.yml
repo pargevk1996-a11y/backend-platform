@@ -88,8 +88,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # backend is internal-only; SMTP to smtp.gmail.com needs outbound DNS + TCP egress.
     networks:
       - backend
+      - edge
 
   user-service:
     build:
