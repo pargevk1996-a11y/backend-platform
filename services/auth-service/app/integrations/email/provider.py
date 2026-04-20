@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
 from email.utils import formataddr
 from smtplib import SMTPException
@@ -58,8 +59,9 @@ class EmailProvider:
         def _send() -> None:
             try:
                 if self.use_tls and self.port == 465:
+                    ctx = ssl.create_default_context()
                     with smtplib.SMTP_SSL(
-                        host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC
+                        host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC, context=ctx
                     ) as smtp:
                         if self.username and self.password:
                             smtp.login(self.username, self.password)
@@ -68,7 +70,8 @@ class EmailProvider:
                     with smtplib.SMTP(host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC) as smtp:
                         smtp.ehlo()
                         if self.use_tls:
-                            smtp.starttls()
+                            ctx = ssl.create_default_context()
+                            smtp.starttls(context=ctx)
                             smtp.ehlo()
                         if self.username and self.password:
                             smtp.login(self.username, self.password)
