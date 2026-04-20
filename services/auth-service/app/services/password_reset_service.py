@@ -95,6 +95,13 @@ class PasswordResetService:
         if user.password_reset_blocked:
             raise PasswordResetFlowBlockedException(self.settings.password_reset_flow_blocked_message)
 
+        if not self.settings.smtp_is_configured:
+            if self.settings.auth_allow_missing_smtp:
+                return PasswordResetRequestResult(email_sent=False)
+            raise ServiceUnavailableException(
+                "Password reset email is not configured. Contact the administrator."
+            )
+
         code = self._generate_code()
         token_hash = self._hash_token(code)
         now = datetime.now(tz=UTC)
@@ -127,11 +134,16 @@ class PasswordResetService:
             "If you did not request a password reset, you can ignore this email.\n"
         )
         try:
-            await self.email_provider.send(
+            sent = await self.email_provider.send(
                 to_email=user.email,
                 subject=subject,
                 body=body,
             )
+            if sent is not True:
+                await session.rollback()
+                raise ServiceUnavailableException(
+                    "Unable to send password reset email. Check SMTP settings or try again later."
+                )
         except (SMTPException, OSError, RuntimeError) as exc:
             await session.rollback()
             LOGGER.exception(
