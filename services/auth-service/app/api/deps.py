@@ -100,6 +100,7 @@ def get_email_provider() -> EmailProvider:
         password=settings.smtp_password_value,
         use_tls=getattr(settings, "smtp_use_tls", True),
         from_email=settings.smtp_from_email_value,
+        from_name=settings.smtp_from_name,
         require_delivery=settings.smtp_require_delivery_value,
     )
 

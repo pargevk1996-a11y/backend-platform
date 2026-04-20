@@ -119,6 +119,7 @@ def main() -> None:
             f"SMTP_PASSWORD={smtp_password}",
             "SMTP_USE_TLS=true",
             "SMTP_FROM_EMAIL=",
+            "SMTP_FROM_NAME=",
             "AUTH_ALLOW_MISSING_SMTP=true",
             "",
             "RATE_LIMIT_LOGIN_PER_MINUTE=10",
