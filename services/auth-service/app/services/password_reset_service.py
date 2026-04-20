@@ -256,3 +256,5 @@ class PasswordResetService:
         if user is not None and acct_attempts >= self.settings.brute_force_password_reset_max_attempts:
             user.password_reset_blocked = True
             await session.flush()
+            # Persist before raising BadRequest: session middleware rolls back uncommitted work.
+            await session.commit()

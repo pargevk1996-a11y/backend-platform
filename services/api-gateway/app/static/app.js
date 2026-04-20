@@ -74,7 +74,7 @@ function sanitizeForPanel(value) {
   if (typeof value !== "object") return value;
   if (!Array.isArray(value) && value.requires_2fa === true) {
     return {
-      message: "2FA required. Enter your 6-digit authenticator code in the form below.",
+      message: "2FA required. Enter your 6-digit code.",
     };
   }
   if (Array.isArray(value)) return value.map(sanitizeForPanel);
@@ -85,12 +85,7 @@ function sanitizeForPanel(value) {
       out[key] = "[redacted]";
       continue;
     }
-    if (k === "challenge_id" || k === "challengeid") {
-      out[key] = "[redacted]";
-      continue;
-    }
-    if (k === "requires_2fa") {
-      out[key] = "[redacted]";
+    if (k === "challenge_id" || k === "challengeid" || k === "requires_2fa") {
       continue;
     }
     if (
@@ -107,7 +102,6 @@ function sanitizeForPanel(value) {
       continue;
     }
     if (k === "tokens" && (val === null || val === undefined)) {
-      out[key] = "[not issued]";
       continue;
     }
     if (k === "tokens" && val && typeof val === "object") {
@@ -502,7 +496,7 @@ function safeLoginResultForPanel(body) {
   if (!body || typeof body !== "object") return body;
   if (body.requires_2fa) {
     return {
-      message: "2FA required. Enter your 6-digit authenticator code in the form below.",
+      message: "2FA required. Enter your 6-digit code.",
     };
   }
   return sanitizeForPanel(body);
@@ -630,7 +624,7 @@ async function submitDisable2faFromModal() {
     closeModal($("disable2faModal"));
     resetDisableModal();
     setStatus("Two-factor authentication disabled.", false);
-    setResult(body, false);
+    setResult(sanitizeForPanel(body), false);
     await refreshTwoFactorStatus();
   } catch (err) {
     setStatus(apiErrorMessage(err) || "Disable 2FA failed.", true);
@@ -658,7 +652,7 @@ $("regBtn").addEventListener("click", async () => {
     setTwoFaStep(false);
     $("regPassword").value = "";
     setStatus("Account created.", false);
-    setResult(body, false);
+    setResult(sanitizeForPanel(body), false);
     await refreshTwoFactorStatus();
   } catch (err) {
     setStatus(apiErrorMessage(err) || "Registration failed.", true);
@@ -679,7 +673,7 @@ $("loginBtn").addEventListener("click", async () => {
     });
     handleTokens(body);
     if (body.requires_2fa) {
-      setStatus("2FA required. Enter the code from your authenticator.", false);
+      setStatus("2FA required. Enter your 6-digit code.", false);
       setTwoFaStep(true);
       clearLoginTotpError();
       await refreshTwoFactorStatus();
@@ -723,7 +717,7 @@ $("resetRequestBtn").addEventListener("click", async () => {
     const code = String(err?.error_code || "").toUpperCase();
     if (code === "RESET_FLOW_BLOCKED") {
       setStatus(apiErrorMessage(err) || "Password reset is not available.", true);
-      setResult({ message: "Contact support using the email shown in the status message." }, true);
+      setResult({ message: apiErrorMessage(err) || "Password reset is not available for this account." }, true);
     } else {
       setStatus(apiErrorMessage(err) || "Reset request failed.", true);
       setResult(sanitizeForPanel(err), true);
@@ -762,7 +756,7 @@ $("resetConfirmBtn").addEventListener("click", async () => {
     const code = String(err?.error_code || "").toUpperCase();
     if (code === "RESET_FLOW_BLOCKED") {
       setStatus(apiErrorMessage(err) || "Password reset is not available.", true);
-      setResult({ message: "Contact support using the email shown in the status message." }, true);
+      setResult({ message: apiErrorMessage(err) || "Password reset is not available for this account." }, true);
     } else {
       setStatus(apiErrorMessage(err) || "Password reset failed.", true);
       setResult(sanitizeForPanel(err), true);
@@ -800,7 +794,7 @@ $("login2faBtn").addEventListener("click", async () => {
     if (isInvalidTwoFactorCodeResponse(err)) {
       setLoginTotpError();
       setStatus("Ready.", false);
-      setResult({ message: "Correct the code below or start sign-in again from the beginning." }, false);
+      setResult({ message: LOGIN_TOTP_ERROR_TEXT }, false);
     } else {
       clearLoginTotpError();
       setStatus(apiErrorMessage(err) || "2FA verification failed.", true);
