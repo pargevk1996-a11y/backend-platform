@@ -368,6 +368,7 @@ async def test_three_wrong_reset_codes_persist_password_reset_blocked(
 
     assert user.password_reset_blocked is True
     assert session.commit_calls >= 1
+    sync/local-main-2026-04-19
 
 
 @pytest.mark.asyncio
@@ -409,3 +410,4 @@ async def test_request_reset_unconfigured_smtp_strict_raises(
             user_agent="pytest",
         )
     get_settings.cache_clear()
+    main
