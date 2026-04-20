@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -8,12 +9,13 @@ from secrets import randbelow
 from uuid import UUID
 
 from redis.asyncio import Redis
+from smtplib import SMTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.constants import AUDIT_PASSWORD_RESET_COMPLETED, AUDIT_PASSWORD_RESET_REQUESTED
 from app.core.privacy import normalize_optional
-from app.exceptions.auth import BadRequestException
+from app.exceptions.auth import BadRequestException, ServiceUnavailableException
 from app.integrations.email.provider import EmailProvider
 from app.integrations.redis.keys import access_session_revoked_key
 from app.repositories.password_reset_repository import PasswordResetRepository
@@ -23,6 +25,8 @@ from app.services.audit_service import AuditService
 from app.services.brute_force_protection_service import BruteForceProtectionService
 from app.services.password_service import PasswordService
 from app.services.session_service import SessionService
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -115,11 +119,24 @@ class PasswordResetService:
             f"This code expires in {ttl_minutes} minutes.\n\n"
             "If you did not request a password reset, you can ignore this email.\n"
         )
-        await self.email_provider.send(
-            to_email=user.email,
-            subject=subject,
-            body=body,
-        )
+        try:
+            await self.email_provider.send(
+                to_email=user.email,
+                subject=subject,
+                body=body,
+            )
+        except (SMTPException, OSError, RuntimeError) as exc:
+            LOGGER.exception(
+                "password_reset.email_send_failed",
+                extra={
+                    "user_id": str(user.id),
+                    "smtp_host": self.settings.smtp_host,
+                    "smtp_port": self.settings.smtp_port,
+                },
+            )
+            raise ServiceUnavailableException(
+                "Unable to send password reset email. Check SMTP settings or try again later."
+            ) from exc
 
         await self.audit_service.log_event(
             session,

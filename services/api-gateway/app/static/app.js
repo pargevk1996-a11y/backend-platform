@@ -25,6 +25,8 @@ const state = {
   formMode: "register",
   /** @type {boolean | null} null = not loaded yet */
   twoFactorEnabled: null,
+  /** After successful POST /v1/auth/password/forgot — unlock code + new password step */
+  passwordResetCodeSent: false,
 };
 
 function baseUrl() {
@@ -53,13 +55,62 @@ function setStatus(message, isError) {
   el.style.color = isError ? "var(--danger)" : "var(--muted)";
 }
 
+function apiErrorMessage(err) {
+  if (err == null) return "Request failed.";
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    return err.message || err.detail || err.error_code || "Request failed.";
+  }
+  return "Request failed.";
+}
+
+/** Deep-sanitize anything shown in the Response panel (no otpauth, secrets, raw QR, or token material). */
+function sanitizeForPanel(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    if (value.startsWith("otpauth://")) return "[redacted: authenticator URI]";
+    return value;
+  }
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(sanitizeForPanel);
+  const out = {};
+  for (const [key, val] of Object.entries(value)) {
+    const k = key.toLowerCase();
+    if (k === "access_token" || k === "refresh_token") {
+      out[key] = "[redacted]";
+      continue;
+    }
+    if (
+      k === "qr_png_base64" ||
+      k === "backup_codes" ||
+      k.includes("otpauth") ||
+      k === "secret" ||
+      k === "totp_secret" ||
+      k === "provisioning_uri" ||
+      k === "manual_entry_key" ||
+      k === "shared_secret"
+    ) {
+      out[key] = Array.isArray(val) ? `[redacted: ${val.length} items]` : "[redacted]";
+      continue;
+    }
+    if (k === "tokens" && val && typeof val === "object") {
+      out[key] = sanitizeForPanel(val);
+      continue;
+    }
+    out[key] = sanitizeForPanel(val);
+    if (typeof out[key] === "string" && out[key].startsWith("otpauth://")) {
+      out[key] = "[redacted: authenticator URI]";
+    }
+  }
+  return out;
+}
+
 function setResult(value, isError) {
   const el = $("result");
   if (typeof value === "string") {
     el.textContent = value;
   } else {
-    const safe = redactTokens(value);
-    el.textContent = JSON.stringify(safe, null, 2);
+    el.textContent = JSON.stringify(sanitizeForPanel(value), null, 2);
   }
   el.style.color = isError ? "var(--danger)" : "var(--text)";
 }
@@ -71,6 +122,8 @@ function setLoading(isLoading) {
     if (el) el.disabled = isLoading;
   });
   updateSessionChrome();
+  refreshAccountState();
+  syncResetPhaseControls();
 }
 
 function setTwoFaStep(visible) {
@@ -104,6 +157,37 @@ function refreshAccountState() {
   $("formGuide").textContent = formGuideText(state.formMode);
 }
 
+function resetPasswordFlowUi() {
+  state.passwordResetCodeSent = false;
+  const p2 = $("resetPhase2");
+  if (p2) p2.classList.add("hidden");
+  const code = $("resetCode");
+  const pw = $("resetPassword");
+  const confirm = $("resetConfirmBtn");
+  if (code) {
+    code.value = "";
+    code.disabled = true;
+  }
+  if (pw) {
+    pw.value = "";
+    pw.disabled = true;
+  }
+  if (confirm) confirm.disabled = true;
+}
+
+function syncResetPhaseControls() {
+  const sent = state.passwordResetCodeSent;
+  const code = $("resetCode");
+  const pw = $("resetPassword");
+  const confirm = $("resetConfirmBtn");
+  const p2 = $("resetPhase2");
+  if (p2) p2.classList.toggle("hidden", !sent);
+  const locked = state.loading || !sent;
+  if (code) code.disabled = locked;
+  if (pw) pw.disabled = locked;
+  if (confirm) confirm.disabled = locked;
+}
+
 function setFormMode(mode) {
   state.formMode = mode;
   const isRegister = mode === "register";
@@ -115,6 +199,7 @@ function setFormMode(mode) {
   $("chooseRegister").classList.toggle("active", isRegister);
   $("chooseLogin").classList.toggle("active", isLogin);
   $("chooseReset").classList.toggle("active", isReset);
+  if (isReset) resetPasswordFlowUi();
   refreshAccountState();
   updateSessionChrome();
 }
@@ -314,17 +399,6 @@ function clearSession() {
   updateSessionChrome();
 }
 
-function redactTokens(payload) {
-  const clone = JSON.parse(JSON.stringify(payload));
-  if (clone.access_token) clone.access_token = "[redacted]";
-  if (clone.refresh_token) clone.refresh_token = "[redacted]";
-  if (clone.tokens?.access_token) clone.tokens.access_token = "[redacted]";
-  if (clone.tokens?.refresh_token) clone.tokens.refresh_token = "[redacted]";
-  if (clone.backup_codes) clone.backup_codes = "[redacted]";
-  if (clone.qr_png_base64) clone.qr_png_base64 = "[redacted]";
-  return clone;
-}
-
 function ensureAccessToken() {
   const token = state.tokens?.access_token;
   if (!token) {
@@ -345,6 +419,8 @@ function ensureTotp(value) {
 
 function resetEnableModal() {
   $("modalQrImage").removeAttribute("src");
+  const qrTab = $("modalOpenQrTabBtn");
+  if (qrTab) qrTab.disabled = true;
   $("modalEnableTotp").value = "";
   $("modalBackupList").innerHTML = "";
   $("modalEnableStepConfirm").classList.remove("hidden");
@@ -367,13 +443,16 @@ async function startEnable2faFlow() {
     if (!body.qr_png_base64) throw { message: "No QR in response" };
     $("modalQrImage").src = `data:image/png;base64,${body.qr_png_base64}`;
     $("modalQrImage").alt = "TOTP QR code";
+    const qrTab = $("modalOpenQrTabBtn");
+    if (qrTab) qrTab.disabled = false;
     $("modalEnableStepConfirm").classList.remove("hidden");
     $("modalEnableStepDone").classList.add("hidden");
     openModal($("enable2faModal"));
     setStatus("Scan the QR in the dialog, then confirm with a code.", false);
+    setResult({ status: "two_factor_setup", hint: "QR is shown in the dialog only." }, false);
   } catch (err) {
-    setStatus(err.message || "2FA setup failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "2FA setup failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -410,11 +489,11 @@ async function confirmEnable2faFromModal() {
       });
     }
     setStatus("2FA enabled. Store your backup codes safely.", false);
-    setResult(body, false);
+    setResult({ status: "two_factor_enabled", hint: "Backup codes are listed in this dialog only." }, false);
     await refreshTwoFactorStatus();
   } catch (err) {
-    setStatus(err.message || "Enable 2FA failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "Enable 2FA failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -452,8 +531,8 @@ async function submitDisable2faFromModal() {
     setResult(body, false);
     await refreshTwoFactorStatus();
   } catch (err) {
-    setStatus(err.message || "Disable 2FA failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "Disable 2FA failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -480,8 +559,8 @@ $("regBtn").addEventListener("click", async () => {
     setResult(body, false);
     await refreshTwoFactorStatus();
   } catch (err) {
-    setStatus(err.message || "Registration failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "Registration failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -509,8 +588,8 @@ $("loginBtn").addEventListener("click", async () => {
     setResult(body, false);
     $("loginPassword").value = "";
   } catch (err) {
-    setStatus(err.message || "Login failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "Login failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -527,11 +606,13 @@ $("resetRequestBtn").addEventListener("click", async () => {
       return;
     }
     const body = await post("/v1/auth/password/forgot", { email });
-    setStatus("If the email exists, a reset code was sent.", false);
+    state.passwordResetCodeSent = true;
+    syncResetPhaseControls();
+    setStatus("If the email exists, a reset code was sent. Enter it below with a new password.", false);
     setResult(body, false);
   } catch (err) {
-    setStatus(err.message || "Reset request failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "Reset request failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -560,11 +641,11 @@ $("resetConfirmBtn").addEventListener("click", async () => {
     });
     setStatus("Password reset successful. You can sign in now.", false);
     setResult(body, false);
-    $("resetCode").value = "";
-    $("resetPassword").value = "";
+    resetPasswordFlowUi();
+    syncResetPhaseControls();
   } catch (err) {
-    setStatus(err.message || "Password reset failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "Password reset failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -588,8 +669,8 @@ $("login2faBtn").addEventListener("click", async () => {
     state.challengeId = null;
     await refreshTwoFactorStatus();
   } catch (err) {
-    setStatus(err.message || "2FA verification failed.", true);
-    setResult(err, true);
+    setStatus(apiErrorMessage(err) || "2FA verification failed.", true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -604,6 +685,16 @@ $("sessionDisable2faBtn").addEventListener("click", () => {
   resetDisableModal();
   openModal($("disable2faModal"));
 });
+
+const modalOpenQrTabBtn = $("modalOpenQrTabBtn");
+if (modalOpenQrTabBtn) {
+  modalOpenQrTabBtn.addEventListener("click", () => {
+    const src = $("modalQrImage")?.getAttribute("src");
+    if (src && src.startsWith("data:image/png;base64,")) {
+      window.open(src, "_blank", "noopener,noreferrer");
+    }
+  });
+}
 
 $("modalDisableSubmitBtn").addEventListener("click", () => void submitDisable2faFromModal());
 
@@ -624,7 +715,7 @@ $("logoutBtn").addEventListener("click", async () => {
     setResult(body, false);
   } catch (err) {
     setStatus("Signed out locally. Server revoke failed.", true);
-    setResult(err, true);
+    setResult(sanitizeForPanel(err), true);
   } finally {
     setLoading(false);
   }
@@ -695,7 +786,7 @@ async function restoreStoredSession() {
     });
     handleTokens(body);
     setStatus("Session restored.", false);
-    setResult({ status: "session_restored", tokens: state.tokens }, false);
+    setResult({ status: "session_restored" }, false);
     await refreshTwoFactorStatus();
   } catch (err) {
     if ([400, 401, 403].includes(err.status)) {
