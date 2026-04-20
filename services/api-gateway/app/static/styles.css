@@ -376,6 +376,46 @@ button.password-toggle:hover {
   padding: 8px;
 }
 
+.modal__totp-input {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.modal__field-error {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--danger);
+  min-height: 0;
+}
+
+.modal__field-error.hidden {
+  display: none;
+}
+
+.modal__totp-input.modal__totp-input--invalid {
+  outline: 1px solid var(--danger);
+  outline-offset: 0;
+  border-color: var(--danger);
+}
+
+.inline-field-error {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--danger);
+}
+
+.inline-field-error.hidden {
+  display: none;
+}
+
+.login-totp-input.login-totp-input--invalid {
+  outline: 1px solid var(--danger);
+  outline-offset: 0;
+  border-color: var(--danger);
+}
+
 .backup-list {
   list-style: none;
   padding: 0;

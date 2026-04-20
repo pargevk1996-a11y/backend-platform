@@ -31,6 +31,20 @@ class AccountLockedException(AppException):
         super().__init__(message=message, error_code="ACCOUNT_LOCKED", status_code=423)
 
 
+class AccountLoginBlockedException(AppException):
+    """Permanent login block until successful password reset."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message=message, error_code="ACCOUNT_LOGIN_LOCKED", status_code=403)
+
+
+class PasswordResetFlowBlockedException(AppException):
+    """Self-service reset disabled until support clears the flag (or successful reset cleared it)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message=message, error_code="RESET_FLOW_BLOCKED", status_code=403)
+
+
 class TooManyRequestsException(AppException):
     def __init__(self, message: str = "Too many requests") -> None:
         super().__init__(message=message, error_code="TOO_MANY_REQUESTS", status_code=429)
