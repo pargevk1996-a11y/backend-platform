@@ -26,6 +26,7 @@ class TwoFactorSetupData:
     secret: str
     provisioning_uri: str
     qr_png_base64: str
+    backup_codes: list[str]
 
 
 @dataclass(slots=True)
@@ -70,7 +71,15 @@ class TwoFactorService:
             issuer_name=self.settings.totp_issuer,
         )
         qr_png_base64 = generate_qr_png_base64(uri)
-        return TwoFactorSetupData(secret=secret, provisioning_uri=uri, qr_png_base64=qr_png_base64)
+        plain_codes = self._generate_plain_backup_codes(10)
+        hashed_codes = [self.password_service.hash_backup_code(code) for code in plain_codes]
+        await self.repository.replace_backup_codes(session, user_id=user.id, hashes=hashed_codes)
+        return TwoFactorSetupData(
+            secret=secret,
+            provisioning_uri=uri,
+            qr_png_base64=qr_png_base64,
+            backup_codes=plain_codes,
+        )
 
     async def enable(
         self, session: AsyncSession, *, user: User, totp_code: str
@@ -96,11 +105,8 @@ class TwoFactorService:
             session, record=secret_record, last_used_timecode=timecode
         )
         user.two_factor_enabled = True
-
-        plain_codes = self._generate_plain_backup_codes(10)
-        hashed_codes = [self.password_service.hash_backup_code(code) for code in plain_codes]
-        await self.repository.replace_backup_codes(session, user_id=user.id, hashes=hashed_codes)
-        return GeneratedBackupCodes(plain_codes=plain_codes)
+        # Backup codes were issued at setup; plaintext is not stored server-side.
+        return GeneratedBackupCodes(plain_codes=[])
 
     async def verify_for_login(
         self,

@@ -57,7 +57,10 @@ async def setup_two_factor(
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
-    return TwoFactorSetupResponse(qr_png_base64=setup_data.qr_png_base64)
+    return TwoFactorSetupResponse(
+        qr_png_base64=setup_data.qr_png_base64,
+        backup_codes=setup_data.backup_codes,
+    )
 
 
 @router.post("/enable", response_model=BackupCodesResponse)
