@@ -49,15 +49,16 @@ class EmailProvider:
         host = self.host
         from_email = self.from_email
         message = EmailMessage()
+        message["Subject"] = subject
         if self.from_name:
             message["From"] = formataddr((self.from_name, from_email))
         else:
             message["From"] = from_email
         message["To"] = to_email
-        message["Subject"] = subject
         message.set_content(body)
 
         def _send() -> None:
+            LOGGER.info("SMTP connect: %s:%s", host, self.port)
             try:
                 if self.use_tls and self.port == 465:
                     ctx = ssl.create_default_context()
@@ -65,6 +66,7 @@ class EmailProvider:
                         host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC, context=ctx
                     ) as smtp:
                         if self.username and self.password:
+                            LOGGER.info("SMTP login user: %s", self.username)
                             smtp.login(self.username, self.password)
                         smtp.send_message(message)
                 else:
@@ -75,6 +77,7 @@ class EmailProvider:
                             smtp.starttls(context=ctx)
                             smtp.ehlo()
                         if self.username and self.password:
+                            LOGGER.info("SMTP login user: %s", self.username)
                             smtp.login(self.username, self.password)
                         smtp.send_message(message)
             except SMTPException as exc:
@@ -88,6 +91,9 @@ class EmailProvider:
                     "email.smtp_network_failed",
                     extra={"to": to_email, "host": host, "port": self.port, "error": str(exc)},
                 )
+                raise
+            except Exception as exc:
+                LOGGER.error("SMTP ERROR: %s", str(exc), exc_info=True)
                 raise
 
         await asyncio.to_thread(_send)
