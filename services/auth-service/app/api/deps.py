@@ -90,8 +90,8 @@ def get_audit_service() -> AuditService:
     return AuditService(get_audit_repository())
 
 
-@lru_cache(maxsize=1)
 def get_email_provider() -> EmailProvider:
+    """Build per request: avoid stale SMTP credentials if process env/settings change."""
     settings = get_settings()
     return EmailProvider(
         host=getattr(settings, "smtp_host", None),
