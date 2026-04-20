@@ -35,7 +35,8 @@ class EmailProvider:
         self.from_name = (from_name or "").strip() or None
         self.require_delivery = require_delivery
 
-    async def send(self, *, to_email: str, subject: str, body: str) -> None:
+    async def send(self, *, to_email: str, subject: str, body: str) -> bool | None:
+        """Return True if SMTP delivery was attempted and completed, None if intentionally skipped."""
         if not self.host or not self.from_email:
             if self.require_delivery:
                 raise RuntimeError("Email delivery is not configured")
@@ -91,3 +92,4 @@ class EmailProvider:
 
         await asyncio.to_thread(_send)
         LOGGER.info("email.sent", extra={"to": to_email, "subject": subject})
+        return True

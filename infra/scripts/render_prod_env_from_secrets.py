@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from urllib.parse import quote_plus
 
 
 def _escape_pem(value: str) -> str:
@@ -176,6 +177,10 @@ def main() -> None:
 
     cors = ",".join(p.strip() for p in args.cors_origins.split(",") if p.strip())
 
+    auth_db_q = quote_plus(auth_db, safe="")
+    user_db_q = quote_plus(user_db, safe="")
+    redis_pw_q = quote_plus(redis_pw, safe="")
+
     auth_env = "\n".join(
         [
             "SERVICE_NAME=auth-service",
@@ -184,8 +189,8 @@ def main() -> None:
             f"CORS_ALLOWED_ORIGINS={cors}",
             "TRUSTED_PROXY_IPS=172.16.0.0/12",
             "",
-            f"DATABASE_URL=postgresql+asyncpg://auth_service:{auth_db}@postgres-auth:5432/auth_service",
-            f"REDIS_URL=redis://:{redis_pw}@redis:6379/0",
+            f"DATABASE_URL=postgresql+asyncpg://auth_service:{auth_db_q}@postgres-auth:5432/auth_service",
+            f"REDIS_URL=redis://:{redis_pw_q}@redis:6379/0",
             "",
             "JWT_ALGORITHM=RS256",
             "JWT_ISSUER=backend-platform",
@@ -250,8 +255,8 @@ def main() -> None:
             f"CORS_ALLOWED_ORIGINS={cors}",
             "TRUSTED_PROXY_IPS=172.16.0.0/12",
             "",
-            f"DATABASE_URL=postgresql+asyncpg://user_service:{user_db}@postgres-user:5432/user_service",
-            f"REDIS_URL=redis://:{redis_pw}@redis:6379/1",
+            f"DATABASE_URL=postgresql+asyncpg://user_service:{user_db_q}@postgres-user:5432/user_service",
+            f"REDIS_URL=redis://:{redis_pw_q}@redis:6379/1",
             "",
             "JWT_ALGORITHM=RS256",
             "JWT_ISSUER=backend-platform",
@@ -272,7 +277,7 @@ def main() -> None:
             "SERVICE_PORT=8000",
             f"CORS_ALLOWED_ORIGINS={cors}",
             "",
-            f"REDIS_URL=redis://:{redis_pw}@redis:6379/2",
+            f"REDIS_URL=redis://:{redis_pw_q}@redis:6379/2",
             "AUTH_SERVICE_URL=http://auth-service:8001",
             "USER_SERVICE_URL=http://user-service:8002",
             "NOTIFICATION_SERVICE_URL=",
