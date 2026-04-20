@@ -256,32 +256,3 @@ class PasswordResetService:
         if user is not None and acct_attempts >= self.settings.brute_force_password_reset_max_attempts:
             user.password_reset_blocked = True
             await session.flush()
-            # #region agent log
-            try:
-                import json
-                import time
-
-                with open(
-                    "/home/pash666/backend-platform/.cursor/debug-b7feee.log",
-                    "a",
-                    encoding="utf-8",
-                ) as _lf:
-                    _lf.write(
-                        json.dumps(
-                            {
-                                "sessionId": "b7feee",
-                                "hypothesisId": "H3",
-                                "location": "password_reset_service.py:_record_reset_failure",
-                                "message": "password_reset_flow_blocked_after_attempts",
-                                "data": {
-                                    "acct_attempts": acct_attempts,
-                                    "max": self.settings.brute_force_password_reset_max_attempts,
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion

@@ -58,6 +58,8 @@ services:
       dockerfile: infra/docker/auth-service.Dockerfile
     container_name: auth-service
     restart: unless-stopped
+    # SMTP_*, SUPPORT_EMAIL, LOGIN_MAX_FAILED_ATTEMPTS, RESET_CODE_MAX_FAILED_ATTEMPTS: set in
+    # ../../services/auth-service/.env (merged into the container with the overrides below).
     env_file:
       - ../../services/auth-service/.env
     environment:
