@@ -13,17 +13,13 @@
         <div class="hero__title">Authentication Console</div>
         <div class="hero__subtitle">Sign in, register, or reset your password.</div>
         <div class="hero__row">
-          <div class="hero__field">
+          <div class="hero__field hero__field--grow">
             <label for="baseUrl">Gateway URL</label>
             <input
               id="baseUrl"
               value=""
               placeholder="Auto: same as this page on :8080; http://localhost:8000 locally"
             />
-          </div>
-          <div class="hero__field">
-            <label for="displayName">Display name (profile)</label>
-            <input id="displayName" placeholder="Optional, applied after register" />
           </div>
         </div>
       </div>
@@ -173,15 +169,19 @@
               Open QR in new tab
             </button>
           </div>
+        sync/local-main-2026-04-19
+          <p class="note">
+            Save these backup codes now (password manager or print). Each code works once. You will need them if you
+            lose your authenticator.
+          </p>
+          <ul class="backup-list" id="modalBackupList"></ul>
+          <p class="note">Scan the QR with your authenticator app, then enter the current code and confirm.</p>
+
           <p class="note">Scan the QR with your authenticator app, then enter the current code.</p>
+         main
           <label for="modalEnableTotp">Authenticator code</label>
           <input id="modalEnableTotp" autocomplete="off" inputmode="numeric" placeholder="123456" />
           <button type="button" id="modalConfirmEnableBtn" class="btn">Confirm and enable</button>
-        </div>
-        <div id="modalEnableStepDone" class="hidden">
-          <p class="note">Save these backup codes in a safe place. Each code works once.</p>
-          <ul class="backup-list" id="modalBackupList"></ul>
-          <button type="button" class="btn" data-close-modal>Done</button>
         </div>
       </div>
     </div>
@@ -191,7 +191,7 @@
       <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="disable2faTitle">
         <button type="button" class="modal__close" data-close-modal aria-label="Close">&times;</button>
         <h2 id="disable2faTitle" class="modal__title">Disable 2FA</h2>
-        <p class="note">Enter your account password and either a TOTP code or a backup code.</p>
+        <p class="note">Enter your account password and the code from your authenticator app.</p>
         <label for="modalDisablePassword">Password</label>
         <div class="password-field">
           <input id="modalDisablePassword" type="password" autocomplete="current-password" />
@@ -206,14 +206,15 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
-        <label for="modalDisableTotp">Authenticator code <span class="label-hint">(optional if using backup)</span></label>
+        <label for="modalDisableTotp">Authenticator code</label>
         <input id="modalDisableTotp" autocomplete="off" inputmode="numeric" placeholder="6–8 digits" />
-        <label for="modalDisableBackup">Backup code <span class="label-hint">(optional if using TOTP)</span></label>
-        <input id="modalDisableBackup" autocomplete="off" placeholder="XXXX-XXXX" />
         <button type="button" id="modalDisableSubmitBtn" class="btn">Disable 2FA</button>
       </div>
     </div>
 
+  sync/local-main-2026-04-19
+    <script src="./app.js?v=20260421-auth-ui-2fa-setup-backup"></script>
     <script src="./app.js?v=20260420-auth-ui-merge-main"></script>
+  main
   </body>
 </html>
