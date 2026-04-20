@@ -93,10 +93,12 @@ def get_audit_service() -> AuditService:
 def get_email_provider() -> EmailProvider:
     """Build per request: avoid stale SMTP credentials if process env/settings change."""
     settings = get_settings()
+    # Gmail-style: many deployments set FROM but omit SMTP_USERNAME; AUTH still needs the mailbox id.
+    smtp_user = getattr(settings, "smtp_username", None) or settings.smtp_from_email_value
     return EmailProvider(
         host=getattr(settings, "smtp_host", None),
         port=getattr(settings, "smtp_port", 587),
-        username=getattr(settings, "smtp_username", None),
+        username=smtp_user,
         password=settings.smtp_password_value,
         use_tls=getattr(settings, "smtp_use_tls", True),
         from_email=settings.smtp_from_email_value,
