@@ -108,6 +108,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("SMTP_FROM_EMAIL", "smtp_from_email"),
     )
+    smtp_from_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_FROM_NAME", "smtp_from_name"),
+    )
     auth_allow_missing_smtp: bool = Field(
         default=False,
         validation_alias=AliasChoices("AUTH_ALLOW_MISSING_SMTP", "auth_allow_missing_smtp"),
