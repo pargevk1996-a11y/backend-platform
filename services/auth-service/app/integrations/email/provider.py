@@ -26,14 +26,15 @@ class EmailProvider:
         from_name: str | None = None,
         require_delivery: bool,
     ) -> None:
-        self.host = host
+        self.host = (host or "").strip() or None
         self.port = port
-        self.username = username
+        self.username = (username or "").strip() or (from_email or "").strip() or None
         self.password = password
         self.use_tls = use_tls
-        self.from_email = from_email
+        self.from_email = (from_email or "").strip() or None
         self.from_name = (from_name or "").strip() or None
         self.require_delivery = require_delivery
+
 
     async def send(self, *, to_email: str, subject: str, body: str) -> bool | None:
         """Return True if SMTP delivery was attempted and completed, None if intentionally skipped."""
