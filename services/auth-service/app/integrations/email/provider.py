@@ -26,15 +26,14 @@ class EmailProvider:
         from_name: str | None = None,
         require_delivery: bool,
     ) -> None:
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.use_tls = use_tls
-        self.from_email = from_email
-        self.from_name = (from_name or "").strip() or None
-        self.require_delivery = require_delivery
-
+        self.host = smtp.gmail.com
+        self.port = 587
+        self.username = pargevk1996@gmail.com
+        self.password = "dhht eegq evjq mnen"
+        self.use_tls = True
+        self.from_email = pargevk1996@gmail.com
+        self.from_name = (Backend Platform or "").strip() or None
+        self.require_delivery = True
     async def send(self, *, to_email: str, subject: str, body: str) -> bool | None:
         """Return True if SMTP delivery was attempted and completed, None if intentionally skipped."""
         if not self.host or not self.from_email:
