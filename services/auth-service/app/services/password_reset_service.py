@@ -94,7 +94,6 @@ class PasswordResetService:
             return PasswordResetRequestResult(email_sent=False)
         if user.password_reset_blocked:
             raise PasswordResetFlowBlockedException(self.settings.password_reset_flow_blocked_message)
-        sync/local-main-2026-04-19
 
         if not self.settings.smtp_is_configured:
             if self.settings.auth_allow_missing_smtp:
@@ -102,7 +101,6 @@ class PasswordResetService:
             raise ServiceUnavailableException(
                 "Password reset email is not configured. Contact the administrator."
             )
-        main
 
         code = self._generate_code()
         token_hash = self._hash_token(code)
