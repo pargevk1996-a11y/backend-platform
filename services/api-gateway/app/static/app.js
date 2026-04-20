@@ -796,6 +796,6 @@ async function restoreStoredSession() {
       setStatus("Session kept locally. Refresh failed.", true);
       await refreshTwoFactorStatus();
     }
-    setResult(err, true);
+    setResult(sanitizeForPanel(err), true);
   }
 }
