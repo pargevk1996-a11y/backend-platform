@@ -81,14 +81,15 @@ async def test_two_factor_setup_enable_and_backup_login() -> None:
     user = SimpleNamespace(id=uuid4(), email="user@example.com", two_factor_enabled=False)
 
     setup = await service.create_setup(None, user=user)
+    assert len(setup.backup_codes) == 10
     totp = pyotp.TOTP(setup.secret, interval=settings.totp_interval_seconds)
     current_code = totp.now()
 
     generated = await service.enable(None, user=user, totp_code=current_code)
     assert user.two_factor_enabled is True
-    assert len(generated.plain_codes) == 10
+    assert len(generated.plain_codes) == 0
 
-    backup_code = generated.plain_codes[0]
+    backup_code = setup.backup_codes[0]
     await service.verify_for_login(None, user=user, totp_code=None, backup_code=backup_code)
 
     with pytest.raises(InvalidTwoFactorCodeException):

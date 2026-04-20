@@ -417,20 +417,39 @@ function ensureTotp(value) {
   return code;
 }
 
+function fillBackupCodeList(ul, codes) {
+  if (!ul) return;
+  ul.innerHTML = "";
+  if (!Array.isArray(codes)) return;
+  codes.forEach((c) => {
+    const li = document.createElement("li");
+    const code = document.createElement("code");
+    code.textContent = c;
+    code.className = "backup-code";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn--tiny btn--ghost";
+    btn.textContent = "Copy";
+    btn.addEventListener("click", () => {
+      void navigator.clipboard.writeText(c).then(() => setStatus("Copied to clipboard.", false));
+    });
+    li.appendChild(code);
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+
 function resetEnableModal() {
   $("modalQrImage").removeAttribute("src");
   const qrTab = $("modalOpenQrTabBtn");
   if (qrTab) qrTab.disabled = true;
   $("modalEnableTotp").value = "";
-  $("modalBackupList").innerHTML = "";
-  $("modalEnableStepConfirm").classList.remove("hidden");
-  $("modalEnableStepDone").classList.add("hidden");
+  fillBackupCodeList($("modalBackupList"), []);
 }
 
 function resetDisableModal() {
   $("modalDisablePassword").value = "";
   $("modalDisableTotp").value = "";
-  $("modalDisableBackup").value = "";
 }
 
 async function startEnable2faFlow() {
@@ -441,15 +460,17 @@ async function startEnable2faFlow() {
     resetEnableModal();
     const body = await post("/v1/two-factor/setup", {}, token);
     if (!body.qr_png_base64) throw { message: "No QR in response" };
+    if (!Array.isArray(body.backup_codes) || body.backup_codes.length !== 10) {
+      throw { message: "Missing backup codes in setup response" };
+    }
     $("modalQrImage").src = `data:image/png;base64,${body.qr_png_base64}`;
     $("modalQrImage").alt = "TOTP QR code";
     const qrTab = $("modalOpenQrTabBtn");
     if (qrTab) qrTab.disabled = false;
-    $("modalEnableStepConfirm").classList.remove("hidden");
-    $("modalEnableStepDone").classList.add("hidden");
+    fillBackupCodeList($("modalBackupList"), body.backup_codes);
     openModal($("enable2faModal"));
-    setStatus("Scan the QR in the dialog, then confirm with a code.", false);
-    setResult({ status: "two_factor_setup", hint: "QR is shown in the dialog only." }, false);
+    setStatus("Save backup codes, scan the QR, then confirm with your authenticator code.", false);
+    setResult({ status: "two_factor_setup", hint: "QR and backup codes are shown in the dialog only." }, false);
   } catch (err) {
     setStatus(apiErrorMessage(err) || "2FA setup failed.", true);
     setResult(sanitizeForPanel(err), true);
@@ -464,32 +485,11 @@ async function confirmEnable2faFromModal() {
   try {
     const token = ensureAccessToken();
     const totp = ensureTotp($("modalEnableTotp").value);
-    const body = await post("/v1/two-factor/enable", { totp_code: totp }, token);
-    $("modalEnableStepConfirm").classList.add("hidden");
-    $("modalEnableStepDone").classList.remove("hidden");
-    const codes = body.backup_codes;
-    const ul = $("modalBackupList");
-    ul.innerHTML = "";
-    if (Array.isArray(codes)) {
-      codes.forEach((c) => {
-        const li = document.createElement("li");
-        const code = document.createElement("code");
-        code.textContent = c;
-        code.className = "backup-code";
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "btn btn--tiny btn--ghost";
-        btn.textContent = "Copy";
-        btn.addEventListener("click", () => {
-          void navigator.clipboard.writeText(c).then(() => setStatus("Copied to clipboard.", false));
-        });
-        li.appendChild(code);
-        li.appendChild(btn);
-        ul.appendChild(li);
-      });
-    }
-    setStatus("2FA enabled. Store your backup codes safely.", false);
-    setResult({ status: "two_factor_enabled", hint: "Backup codes are listed in this dialog only." }, false);
+    await post("/v1/two-factor/enable", { totp_code: totp }, token);
+    closeModal($("enable2faModal"));
+    resetEnableModal();
+    setStatus("Two-factor authentication is enabled.", false);
+    setResult({ status: "two_factor_enabled" }, false);
     await refreshTwoFactorStatus();
   } catch (err) {
     setStatus(apiErrorMessage(err) || "Enable 2FA failed.", true);
@@ -510,19 +510,14 @@ async function submitDisable2faFromModal() {
       return;
     }
     const totpRaw = $("modalDisableTotp").value.trim();
-    const backupRaw = $("modalDisableBackup").value.trim();
-    if (totpRaw && backupRaw) {
-      setStatus("Provide either a TOTP code or a backup code, not both.", true);
-      return;
-    }
-    if (!totpRaw && !backupRaw) {
-      setStatus("Provide a TOTP code or a backup code.", true);
+    if (!totpRaw) {
+      setStatus("Authenticator code is required.", true);
       return;
     }
     const payload = {
       password,
-      totp_code: totpRaw ? ensureTotp(totpRaw) : null,
-      backup_code: backupRaw || null,
+      totp_code: ensureTotp(totpRaw),
+      backup_code: null,
     };
     const body = await post("/v1/two-factor/disable", payload, token);
     closeModal($("disable2faModal"));
@@ -736,7 +731,7 @@ bindEnter(["resetEmail"], "resetRequestBtn", () => !$("formReset").classList.con
 bindEnter(["resetCode", "resetPassword"], "resetConfirmBtn", () => !$("formReset").classList.contains("hidden"));
 bindEnter(["totpCode"], "login2faBtn", () => !$("twoFaStep").classList.contains("hidden"));
 bindEnter(["modalEnableTotp"], "modalConfirmEnableBtn", () => !$("enable2faModal").classList.contains("hidden"));
-bindEnter(["modalDisablePassword", "modalDisableTotp", "modalDisableBackup"], "modalDisableSubmitBtn", () => !$("disable2faModal").classList.contains("hidden"));
+bindEnter(["modalDisablePassword", "modalDisableTotp"], "modalDisableSubmitBtn", () => !$("disable2faModal").classList.contains("hidden"));
 
 wireModalDismiss($("enable2faModal"), ".modal__dialog");
 wireModalDismiss($("disable2faModal"), ".modal__dialog");
@@ -757,7 +752,6 @@ window.addEventListener("load", () => {
       "resetEmail",
       "resetCode",
       "resetPassword",
-      "displayName",
       "totpCode",
     ].forEach((id) => {
       const el = $(id);
