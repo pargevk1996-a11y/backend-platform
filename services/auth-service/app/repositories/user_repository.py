@@ -27,3 +27,5 @@ class UserRepository:
 
     async def update_password(self, user: User, password_hash: str) -> None:
         user.password_hash = password_hash
+        user.login_blocked = False
+        user.password_reset_blocked = False

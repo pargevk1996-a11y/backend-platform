@@ -6,7 +6,11 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
-from app.exceptions.auth import BadRequestException, ServiceUnavailableException
+from app.exceptions.auth import (
+    BadRequestException,
+    PasswordResetFlowBlockedException,
+    ServiceUnavailableException,
+)
 from app.services.password_reset_service import PasswordResetService
 
 
@@ -15,6 +19,8 @@ class FakeUser:
     id: UUID
     email: str
     password_hash: str = "old-hash"
+    password_reset_blocked: bool = False
+    login_blocked: bool = False
 
 
 @dataclass
@@ -28,9 +34,17 @@ class FakeResetRecord:
 class FakeSession:
     def __init__(self) -> None:
         self.commit_calls = 0
+        self.rollback_calls = 0
+        self.flush_calls = 0
 
     async def commit(self) -> None:
         self.commit_calls += 1
+
+    async def rollback(self) -> None:
+        self.rollback_calls += 1
+
+    async def flush(self) -> None:
+        self.flush_calls += 1
 
 
 class FakeUserRepository:
@@ -138,12 +152,16 @@ class FakeBruteForceService:
     def __init__(self) -> None:
         self.failures: list[tuple[str, str]] = []
         self.cleared: list[tuple[str, str]] = []
+        self._counts: dict[tuple[str, str], int] = {}
 
     async def assert_not_locked(self, *, scope: str, identifier: str) -> None:
         _ = (scope, identifier)
 
-    async def record_failure(self, *, scope: str, identifier: str) -> None:
+    async def record_failure(self, *, scope: str, identifier: str) -> int:
         self.failures.append((scope, identifier))
+        key = (scope, identifier)
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key]
 
     async def clear_failures(self, *, scope: str, identifier: str) -> None:
         self.cleared.append((scope, identifier))
@@ -190,13 +208,15 @@ async def test_request_reset_email_failure_returns_service_unavailable() -> None
     service, *_rest = _build_service(user)
     service.email_provider = BoomEmail()
 
+    sess = FakeSession()
     with pytest.raises(ServiceUnavailableException):
         await service.request_reset(
-            FakeSession(),
+            sess,
             email=user.email,
             ip_address="127.0.0.1",
             user_agent="pytest",
         )
+    assert sess.rollback_calls == 1
 
 
 @pytest.mark.asyncio
@@ -293,3 +313,31 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
         ("password_reset", "user@example.com:127.0.0.1"),
         ("password_reset_account", "user@example.com"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_request_reset_raises_when_password_reset_blocked() -> None:
+    user = FakeUser(id=uuid4(), email="blocked@example.com", password_reset_blocked=True)
+    service, *_ = _build_service(user)
+    with pytest.raises(PasswordResetFlowBlockedException):
+        await service.request_reset(
+            FakeSession(),
+            email=user.email,
+            ip_address=None,
+            user_agent=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_reset_password_raises_when_password_reset_blocked() -> None:
+    user = FakeUser(id=uuid4(), email="blocked2@example.com", password_reset_blocked=True)
+    service, *_ = _build_service(user)
+    with pytest.raises(PasswordResetFlowBlockedException):
+        await service.reset_password(
+            FakeSession(),
+            email=user.email,
+            code="123456",
+            new_password="NewPassw0rd!",
+            ip_address=None,
+            user_agent=None,
+        )

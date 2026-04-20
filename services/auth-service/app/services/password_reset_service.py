@@ -15,7 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.constants import AUDIT_PASSWORD_RESET_COMPLETED, AUDIT_PASSWORD_RESET_REQUESTED
 from app.core.privacy import normalize_optional
-from app.exceptions.auth import BadRequestException, ServiceUnavailableException
+from app.exceptions.auth import (
+    BadRequestException,
+    PasswordResetFlowBlockedException,
+    ServiceUnavailableException,
+)
+from app.models.user import User
 from app.integrations.email.provider import EmailProvider
 from app.integrations.redis.keys import access_session_revoked_key
 from app.repositories.password_reset_repository import PasswordResetRepository
@@ -87,6 +92,8 @@ class PasswordResetService:
         user = await self.user_repository.get_by_email(session, normalized_email)
         if user is None:
             return PasswordResetRequestResult(email_sent=False)
+        if user.password_reset_blocked:
+            raise PasswordResetFlowBlockedException(self.settings.password_reset_flow_blocked_message)
 
         code = self._generate_code()
         token_hash = self._hash_token(code)
@@ -126,6 +133,7 @@ class PasswordResetService:
                 body=body,
             )
         except (SMTPException, OSError, RuntimeError) as exc:
+            await session.rollback()
             LOGGER.exception(
                 "password_reset.email_send_failed",
                 extra={
@@ -175,8 +183,10 @@ class PasswordResetService:
 
         user = await self.user_repository.get_by_email(session, normalized_email)
         if user is None:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=None)
             raise BadRequestException("Invalid or expired reset code")
+        if user.password_reset_blocked:
+            raise PasswordResetFlowBlockedException(self.settings.password_reset_flow_blocked_message)
 
         token_hash = self._hash_token(code)
         record = await self.password_reset_repository.get_active_for_user_by_hash(
@@ -185,14 +195,14 @@ class PasswordResetService:
             token_hash=token_hash,
         )
         if record is None:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=user)
             raise BadRequestException("Invalid or expired reset code")
         if record.used_at is not None:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=user)
             raise BadRequestException("Invalid or expired reset code")
         now = datetime.now(tz=UTC)
         if record.expires_at < now:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=user)
             raise BadRequestException("Invalid or expired reset code")
 
         password_hash = self.password_service.hash_password(new_password)
@@ -227,12 +237,51 @@ class PasswordResetService:
         )
         await session.commit()
 
-    async def _record_reset_failure(self, identifier: str, account_identifier: str) -> None:
+    async def _record_reset_failure(
+        self,
+        session: AsyncSession,
+        identifier: str,
+        account_identifier: str,
+        *,
+        user: User | None,
+    ) -> None:
         await self.brute_force_service.record_failure(
             scope="password_reset",
             identifier=identifier,
         )
-        await self.brute_force_service.record_failure(
+        acct_attempts = await self.brute_force_service.record_failure(
             scope="password_reset_account",
             identifier=account_identifier,
         )
+        if user is not None and acct_attempts >= self.settings.brute_force_password_reset_max_attempts:
+            user.password_reset_blocked = True
+            await session.flush()
+            # #region agent log
+            try:
+                import json
+                import time
+
+                with open(
+                    "/home/pash666/backend-platform/.cursor/debug-b7feee.log",
+                    "a",
+                    encoding="utf-8",
+                ) as _lf:
+                    _lf.write(
+                        json.dumps(
+                            {
+                                "sessionId": "b7feee",
+                                "hypothesisId": "H3",
+                                "location": "password_reset_service.py:_record_reset_failure",
+                                "message": "password_reset_flow_blocked_after_attempts",
+                                "data": {
+                                    "acct_attempts": acct_attempts,
+                                    "max": self.settings.brute_force_password_reset_max_attempts,
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
