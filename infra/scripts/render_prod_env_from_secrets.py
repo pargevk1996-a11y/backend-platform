@@ -26,6 +26,86 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def _read_optional_one_line(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        s = raw.strip()
+        if s and not s.startswith("#"):
+            return s
+    return ""
+
+
+def _compose_get(compose: dict[str, str], key: str) -> str:
+    return (compose.get(key) or "").strip()
+
+
+def _quote_env_value(val: str) -> str:
+    """Quote .env values that contain spaces, #, or quotes (safe for SMTP app passwords)."""
+    if not val:
+        return ""
+    if any(c in val for c in ' "\n\\#'):
+        escaped = val.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return val
+
+
+def _resolve_smtp_for_auth_env(compose: dict[str, str], secrets_dir: Path) -> dict[str, str]:
+    """Merge SMTP from infra/compose/.env.compose + optional secrets/*.txt (no secrets printed)."""
+    smtp_pw_path = secrets_dir / "smtp_password.txt"
+    smtp_password = _read_text(smtp_pw_path) if smtp_pw_path.is_file() else ""
+    if not smtp_password:
+        smtp_password = _compose_get(compose, "SMTP_PASSWORD")
+
+    smtp_host = _read_optional_one_line(secrets_dir / "smtp_host.txt") or _compose_get(
+        compose, "SMTP_HOST"
+    )
+    smtp_username = _read_optional_one_line(secrets_dir / "smtp_username.txt") or _compose_get(
+        compose, "SMTP_USERNAME"
+    )
+    smtp_from_email = (
+        _read_optional_one_line(secrets_dir / "smtp_from_email.txt")
+        or _compose_get(compose, "SMTP_FROM_EMAIL")
+        or smtp_username
+    )
+    smtp_from_name = (
+        _read_optional_one_line(secrets_dir / "smtp_from_name.txt")
+        or _compose_get(compose, "SMTP_FROM_NAME")
+        or "Backend Platform"
+    )
+    smtp_port = _compose_get(compose, "SMTP_PORT") or "587"
+    tls_raw = _compose_get(compose, "SMTP_USE_TLS").lower()
+    if tls_raw in ("false", "0", "no"):
+        smtp_use_tls = "false"
+    else:
+        smtp_use_tls = "true"
+
+    smtp_require = _compose_get(compose, "SMTP_REQUIRE_DELIVERY")
+    if not smtp_require:
+        smtp_require = "true"
+
+    allow_raw = _compose_get(compose, "AUTH_ALLOW_MISSING_SMTP").lower()
+    if allow_raw in ("true", "1", "yes"):
+        auth_allow_missing = "true"
+    elif allow_raw in ("false", "0", "no"):
+        auth_allow_missing = "false"
+    else:
+        delivery_ready = bool(smtp_host and (smtp_from_email or smtp_username) and smtp_password)
+        auth_allow_missing = "false" if delivery_ready else "true"
+
+    return {
+        "SMTP_HOST": _quote_env_value(smtp_host) if smtp_host else "",
+        "SMTP_PORT": smtp_port,
+        "SMTP_USERNAME": _quote_env_value(smtp_username) if smtp_username else "",
+        "SMTP_PASSWORD": _quote_env_value(smtp_password) if smtp_password else "",
+        "SMTP_USE_TLS": smtp_use_tls,
+        "SMTP_FROM_EMAIL": _quote_env_value(smtp_from_email) if smtp_from_email else "",
+        "SMTP_FROM_NAME": _quote_env_value(smtp_from_name) if smtp_from_name else "",
+        "SMTP_REQUIRE_DELIVERY": smtp_require,
+        "AUTH_ALLOW_MISSING_SMTP": auth_allow_missing,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -78,8 +158,21 @@ def main() -> None:
     reset_pepper = _read_text(secrets_dir / "password_reset_pepper.txt")
     totp_key = _read_text(secrets_dir / "totp_fernet.key")
 
-    smtp_pw_path = secrets_dir / "smtp_password.txt"
-    smtp_password = _read_text(smtp_pw_path) if smtp_pw_path.is_file() else ""
+    smtp_lines = _resolve_smtp_for_auth_env(compose, secrets_dir)
+    login_max = (
+        _compose_get(compose, "LOGIN_MAX_FAILED_ATTEMPTS")
+        or _compose_get(compose, "BRUTE_FORCE_LOGIN_MAX_ATTEMPTS")
+        or "3"
+    )
+    reset_max = (
+        _compose_get(compose, "RESET_CODE_MAX_FAILED_ATTEMPTS")
+        or _compose_get(compose, "BRUTE_FORCE_PASSWORD_RESET_MAX_ATTEMPTS")
+        or "3"
+    )
+    support_email_raw = _compose_get(compose, "SUPPORT_EMAIL")
+    support_email_line = (
+        f"SUPPORT_EMAIL={_quote_env_value(support_email_raw)}" if support_email_raw else "SUPPORT_EMAIL="
+    )
 
     cors = ",".join(p.strip() for p in args.cors_origins.split(",") if p.strip())
 
@@ -113,14 +206,16 @@ def main() -> None:
             "",
             "LOGIN_CHALLENGE_TTL_SECONDS=300",
             "PASSWORD_RESET_TOKEN_TTL_SECONDS=900",
-            "SMTP_HOST=",
-            "SMTP_PORT=587",
-            "SMTP_USERNAME=",
-            f"SMTP_PASSWORD={smtp_password}",
-            "SMTP_USE_TLS=true",
-            "SMTP_FROM_EMAIL=",
-            "SMTP_FROM_NAME=",
-            "AUTH_ALLOW_MISSING_SMTP=true",
+            f"SMTP_HOST={smtp_lines['SMTP_HOST']}",
+            f"SMTP_PORT={smtp_lines['SMTP_PORT']}",
+            f"SMTP_USERNAME={smtp_lines['SMTP_USERNAME']}",
+            f"SMTP_PASSWORD={smtp_lines['SMTP_PASSWORD']}",
+            f"SMTP_USE_TLS={smtp_lines['SMTP_USE_TLS']}",
+            f"SMTP_FROM_EMAIL={smtp_lines['SMTP_FROM_EMAIL']}",
+            f"SMTP_FROM_NAME={smtp_lines['SMTP_FROM_NAME']}",
+            f"SMTP_REQUIRE_DELIVERY={smtp_lines['SMTP_REQUIRE_DELIVERY']}",
+            f"AUTH_ALLOW_MISSING_SMTP={smtp_lines['AUTH_ALLOW_MISSING_SMTP']}",
+            support_email_line,
             "",
             "RATE_LIMIT_LOGIN_PER_MINUTE=10",
             "RATE_LIMIT_2FA_PER_MINUTE=10",
@@ -128,13 +223,13 @@ def main() -> None:
             "RATE_LIMIT_REGISTER_PER_MINUTE=5",
             "RATE_LIMIT_PASSWORD_RESET_PER_MINUTE=5",
             "",
-            "BRUTE_FORCE_LOGIN_MAX_ATTEMPTS=5",
+            f"BRUTE_FORCE_LOGIN_MAX_ATTEMPTS={login_max}",
             "BRUTE_FORCE_LOGIN_WINDOW_SECONDS=300",
             "BRUTE_FORCE_LOGIN_LOCK_SECONDS=900",
             "BRUTE_FORCE_2FA_MAX_ATTEMPTS=5",
             "BRUTE_FORCE_2FA_WINDOW_SECONDS=300",
             "BRUTE_FORCE_2FA_LOCK_SECONDS=900",
-            "BRUTE_FORCE_PASSWORD_RESET_MAX_ATTEMPTS=5",
+            f"BRUTE_FORCE_PASSWORD_RESET_MAX_ATTEMPTS={reset_max}",
             "BRUTE_FORCE_PASSWORD_RESET_WINDOW_SECONDS=300",
             "BRUTE_FORCE_PASSWORD_RESET_LOCK_SECONDS=900",
             "",

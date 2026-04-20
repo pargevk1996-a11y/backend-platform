@@ -80,6 +80,14 @@ function sanitizeForPanel(value) {
       out[key] = "[redacted]";
       continue;
     }
+    if (k === "challenge_id" || k === "challengeid") {
+      out[key] = "[redacted]";
+      continue;
+    }
+    if (k === "requires_2fa") {
+      out[key] = "[redacted]";
+      continue;
+    }
     if (
       k === "qr_png_base64" ||
       k === "backup_codes" ||
@@ -91,6 +99,10 @@ function sanitizeForPanel(value) {
       k === "shared_secret"
     ) {
       out[key] = Array.isArray(val) ? `[redacted: ${val.length} items]` : "[redacted]";
+      continue;
+    }
+    if (k === "tokens" && (val === null || val === undefined)) {
+      out[key] = "[not issued]";
       continue;
     }
     if (k === "tokens" && val && typeof val === "object") {
@@ -394,6 +406,7 @@ function clearSession() {
   state.challengeId = null;
   state.twoFactorEnabled = null;
   setTwoFaStep(false);
+  clearLoginTotpError();
   resetEnableModal();
   resetDisableModal();
   resetPasswordFlowUi();
@@ -417,6 +430,77 @@ function ensureTotp(value) {
     throw { message: "Invalid TOTP code" };
   }
   return code;
+}
+
+const MODAL_ENABLE_TOTP_ERROR_TEXT = "Invalid 6-digit code";
+
+function clearModalEnableTotpError() {
+  const errEl = $("modalEnableTotpError");
+  const inp = $("modalEnableTotp");
+  if (errEl) {
+    errEl.textContent = "";
+    errEl.classList.add("hidden");
+    errEl.setAttribute("aria-hidden", "true");
+  }
+  if (inp) inp.classList.remove("modal__totp-input--invalid");
+}
+
+function setModalEnableTotpError() {
+  const errEl = $("modalEnableTotpError");
+  const inp = $("modalEnableTotp");
+  if (errEl) {
+    errEl.textContent = MODAL_ENABLE_TOTP_ERROR_TEXT;
+    errEl.classList.remove("hidden");
+    errEl.setAttribute("aria-hidden", "false");
+  }
+  if (inp) inp.classList.add("modal__totp-input--invalid");
+}
+
+/** Wrong TOTP on POST /v1/two-factor/enable or POST /v1/auth/login/2fa. */
+function isInvalidTwoFactorCodeResponse(err) {
+  if (!err || typeof err !== "object") return false;
+  const code = String(err.error_code || "").toUpperCase();
+  if (err.status === 401 && code === "INVALID_2FA_CODE") return true;
+  const msg = String(err.message || err.detail || "").toLowerCase();
+  return err.status === 401 && msg.includes("invalid") && msg.includes("two-factor");
+}
+
+function isEnableModalTotpFailure(err) {
+  return isInvalidTwoFactorCodeResponse(err);
+}
+
+const LOGIN_TOTP_ERROR_TEXT = MODAL_ENABLE_TOTP_ERROR_TEXT;
+
+function clearLoginTotpError() {
+  const errEl = $("loginTotpError");
+  const inp = $("totpCode");
+  if (errEl) {
+    errEl.textContent = "";
+    errEl.classList.add("hidden");
+    errEl.setAttribute("aria-hidden", "true");
+  }
+  if (inp) inp.classList.remove("login-totp-input--invalid");
+}
+
+function setLoginTotpError() {
+  const errEl = $("loginTotpError");
+  const inp = $("totpCode");
+  if (errEl) {
+    errEl.textContent = LOGIN_TOTP_ERROR_TEXT;
+    errEl.classList.remove("hidden");
+    errEl.setAttribute("aria-hidden", "false");
+  }
+  if (inp) inp.classList.add("login-totp-input--invalid");
+}
+
+function safeLoginResultForPanel(body) {
+  if (!body || typeof body !== "object") return body;
+  if (body.requires_2fa) {
+    return {
+      message: "2FA required. Enter your 6-digit authenticator code in the form below.",
+    };
+  }
+  return sanitizeForPanel(body);
 }
 
 function fillBackupCodeList(ul, codes) {
@@ -445,6 +529,7 @@ function resetEnableModal() {
   $("modalQrImage").removeAttribute("src");
   $("modalEnableTotp").value = "";
   fillBackupCodeList($("modalBackupList"), []);
+  clearModalEnableTotpError();
 }
 
 function resetDisableModal() {
@@ -483,18 +568,28 @@ async function startEnable2faFlow() {
 }
 
 async function confirmEnable2faFromModal() {
+  clearModalEnableTotpError();
+  const totpRaw = ($("modalEnableTotp").value || "").trim();
+  if (!/^[0-9]{6,8}$/.test(totpRaw)) {
+    setModalEnableTotpError();
+    return;
+  }
   setLoading(true);
   setStatus("Enabling 2FA...", false);
   try {
     const token = ensureAccessToken();
-    const totp = ensureTotp($("modalEnableTotp").value);
-    await post("/v1/two-factor/enable", { totp_code: totp }, token);
+    await post("/v1/two-factor/enable", { totp_code: totpRaw }, token);
     closeModal($("enable2faModal"));
     resetEnableModal();
     setStatus("Two-factor authentication is enabled.", false);
     setResult({ status: "two_factor_enabled" }, false);
     await refreshTwoFactorStatus();
   } catch (err) {
+    if (isEnableModalTotpFailure(err)) {
+      setModalEnableTotpError();
+      setStatus("Ready.", false);
+      return;
+    }
     setStatus(apiErrorMessage(err) || "Enable 2FA failed.", true);
     setResult(sanitizeForPanel(err), true);
   } finally {
@@ -577,17 +672,24 @@ $("loginBtn").addEventListener("click", async () => {
     if (body.requires_2fa) {
       setStatus("2FA required. Enter the code from your authenticator.", false);
       setTwoFaStep(true);
+      clearLoginTotpError();
       await refreshTwoFactorStatus();
     } else {
       setStatus("Signed in.", false);
       setTwoFaStep(false);
       await refreshTwoFactorStatus();
     }
-    setResult(body, false);
+    setResult(safeLoginResultForPanel(body), false);
     $("loginPassword").value = "";
   } catch (err) {
-    setStatus(apiErrorMessage(err) || "Login failed.", true);
-    setResult(sanitizeForPanel(err), true);
+    const code = String(err?.error_code || "").toUpperCase();
+    if (code === "ACCOUNT_LOGIN_LOCKED") {
+      setStatus(apiErrorMessage(err) || "Sign-in is blocked for this account.", true);
+      setResult({ message: "Use password reset with your email to regain access." }, true);
+    } else {
+      setStatus(apiErrorMessage(err) || "Login failed.", true);
+      setResult(sanitizeForPanel(err), true);
+    }
   } finally {
     setLoading(false);
   }
@@ -609,8 +711,14 @@ $("resetRequestBtn").addEventListener("click", async () => {
     setStatus("If the email exists, a reset code was sent. Enter it below with a new password.", false);
     setResult(body, false);
   } catch (err) {
-    setStatus(apiErrorMessage(err) || "Reset request failed.", true);
-    setResult(sanitizeForPanel(err), true);
+    const code = String(err?.error_code || "").toUpperCase();
+    if (code === "RESET_FLOW_BLOCKED") {
+      setStatus(apiErrorMessage(err) || "Password reset is not available.", true);
+      setResult({ message: "Contact support using the email shown in the status message." }, true);
+    } else {
+      setStatus(apiErrorMessage(err) || "Reset request failed.", true);
+      setResult(sanitizeForPanel(err), true);
+    }
   } finally {
     setLoading(false);
   }
@@ -642,42 +750,69 @@ $("resetConfirmBtn").addEventListener("click", async () => {
     resetPasswordFlowUi();
     syncResetPhaseControls();
   } catch (err) {
-    setStatus(apiErrorMessage(err) || "Password reset failed.", true);
-    setResult(sanitizeForPanel(err), true);
+    const code = String(err?.error_code || "").toUpperCase();
+    if (code === "RESET_FLOW_BLOCKED") {
+      setStatus(apiErrorMessage(err) || "Password reset is not available.", true);
+      setResult({ message: "Contact support using the email shown in the status message." }, true);
+    } else {
+      setStatus(apiErrorMessage(err) || "Password reset failed.", true);
+      setResult(sanitizeForPanel(err), true);
+    }
   } finally {
     setLoading(false);
   }
 });
 
 $("login2faBtn").addEventListener("click", async () => {
+  clearLoginTotpError();
+  const totpRaw = ($("totpCode").value || "").trim();
+  if (!/^[0-9]{6,8}$/.test(totpRaw)) {
+    setLoginTotpError();
+    return;
+  }
   setLoading(true);
   setStatus("Verifying 2FA...", false);
-  setResult("Verifying 2FA...", false);
+  setResult({ message: "Verifying 2FA…" }, false);
   try {
     const body = await post("/v1/auth/login/2fa", {
       challenge_id: state.challengeId,
-      totp_code: $("totpCode").value || null,
+      totp_code: totpRaw,
       backup_code: null,
     });
     handleTokens(body);
     setStatus("2FA verified.", false);
     setTwoFaStep(false);
-    setResult(body, false);
+    clearLoginTotpError();
+    setResult(sanitizeForPanel(body), false);
     $("totpCode").value = "";
     state.challengeId = null;
     await refreshTwoFactorStatus();
   } catch (err) {
-    setStatus(apiErrorMessage(err) || "2FA verification failed.", true);
-    setResult(sanitizeForPanel(err), true);
+    if (isInvalidTwoFactorCodeResponse(err)) {
+      setLoginTotpError();
+      setStatus("Ready.", false);
+      setResult({ message: "Correct the code below or start sign-in again from the beginning." }, false);
+    } else {
+      clearLoginTotpError();
+      setStatus(apiErrorMessage(err) || "2FA verification failed.", true);
+      setResult(sanitizeForPanel(err), true);
+    }
   } finally {
     setLoading(false);
   }
+});
+
+$("totpCode").addEventListener("input", () => {
+  if (!$("twoFaStep").classList.contains("hidden")) clearLoginTotpError();
 });
 
 $("sessionEnable2faBtn").addEventListener("click", () => void startEnable2faFlow());
 $("registerEnable2faBtn").addEventListener("click", () => void startEnable2faFlow());
 
 $("modalConfirmEnableBtn").addEventListener("click", () => void confirmEnable2faFromModal());
+$("modalEnableTotp").addEventListener("input", () => {
+  if (!$("enable2faModal").classList.contains("hidden")) clearModalEnableTotpError();
+});
 
 $("sessionDisable2faBtn").addEventListener("click", () => {
   resetDisableModal();
