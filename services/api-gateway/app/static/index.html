@@ -162,23 +162,14 @@
         <h2 id="enable2faTitle" class="modal__title">Set up authenticator</h2>
         <div id="modalEnableStepConfirm">
           <div class="modal__qr-wrap">
-            <img id="modalQrImage" alt="" width="200" height="200" />
+            <img id="modalQrImage" alt="Authenticator setup QR" width="200" height="200" />
           </div>
-          <div class="row">
-            <button type="button" id="modalOpenQrTabBtn" class="btn btn--ghost btn--tiny" disabled>
-              Open QR in new tab
-            </button>
-          </div>
-        sync/local-main-2026-04-19
           <p class="note">
             Save these backup codes now (password manager or print). Each code works once. You will need them if you
             lose your authenticator.
           </p>
           <ul class="backup-list" id="modalBackupList"></ul>
           <p class="note">Scan the QR with your authenticator app, then enter the current code and confirm.</p>
-
-          <p class="note">Scan the QR with your authenticator app, then enter the current code.</p>
-         main
           <label for="modalEnableTotp">Authenticator code</label>
           <input id="modalEnableTotp" autocomplete="off" inputmode="numeric" placeholder="123456" />
           <button type="button" id="modalConfirmEnableBtn" class="btn">Confirm and enable</button>
@@ -212,9 +203,6 @@
       </div>
     </div>
 
-  sync/local-main-2026-04-19
-    <script src="./app.js?v=20260421-auth-ui-2fa-setup-backup"></script>
-    <script src="./app.js?v=20260420-auth-ui-merge-main"></script>
-  main
+    <script src="./app.js?v=20260421-auth-ui-2fa-qr-guest-reset"></script>
   </body>
 </html>
