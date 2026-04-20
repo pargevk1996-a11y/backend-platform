@@ -341,3 +341,29 @@ async def test_reset_password_raises_when_password_reset_blocked() -> None:
             ip_address=None,
             user_agent=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_three_wrong_reset_codes_persist_password_reset_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRUTE_FORCE_PASSWORD_RESET_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("RESET_CODE_MAX_FAILED_ATTEMPTS", "3")
+    get_settings.cache_clear()
+    user = FakeUser(id=uuid4(), email="user@example.com")
+    service, *_rest = _build_service(user)
+    session = FakeSession()
+
+    for _ in range(3):
+        with pytest.raises(BadRequestException):
+            await service.reset_password(
+                session,
+                email=user.email,
+                code="000000",
+                new_password="NewPassw0rd!",
+                ip_address="127.0.0.1",
+                user_agent="pytest",
+            )
+
+    assert user.password_reset_blocked is True
+    assert session.commit_calls >= 1
