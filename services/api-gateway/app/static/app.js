@@ -467,10 +467,17 @@ async function startEnable2faFlow() {
     $("modalQrImage").alt = "TOTP QR code";
     const qrTab = $("modalOpenQrTabBtn");
     if (qrTab) qrTab.disabled = false;
+    sync/local-main-2026-04-19
     fillBackupCodeList($("modalBackupList"), body.backup_codes);
     openModal($("enable2faModal"));
     setStatus("Save backup codes, scan the QR, then confirm with your authenticator code.", false);
     setResult({ status: "two_factor_setup", hint: "QR and backup codes are shown in the dialog only." }, false);
+    $("modalEnableStepConfirm").classList.remove("hidden");
+    $("modalEnableStepDone").classList.add("hidden");
+    openModal($("enable2faModal"));
+    setStatus("Scan the QR in the dialog, then confirm with a code.", false);
+    setResult({ status: "two_factor_setup", hint: "QR is shown in the dialog only." }, false);
+    main
   } catch (err) {
     setStatus(apiErrorMessage(err) || "2FA setup failed.", true);
     setResult(sanitizeForPanel(err), true);
@@ -485,11 +492,39 @@ async function confirmEnable2faFromModal() {
   try {
     const token = ensureAccessToken();
     const totp = ensureTotp($("modalEnableTotp").value);
+    sync/local-main-2026-04-19
     await post("/v1/two-factor/enable", { totp_code: totp }, token);
     closeModal($("enable2faModal"));
     resetEnableModal();
     setStatus("Two-factor authentication is enabled.", false);
     setResult({ status: "two_factor_enabled" }, false);
+    const body = await post("/v1/two-factor/enable", { totp_code: totp }, token);
+    $("modalEnableStepConfirm").classList.add("hidden");
+    $("modalEnableStepDone").classList.remove("hidden");
+    const codes = body.backup_codes;
+    const ul = $("modalBackupList");
+    ul.innerHTML = "";
+    if (Array.isArray(codes)) {
+      codes.forEach((c) => {
+        const li = document.createElement("li");
+        const code = document.createElement("code");
+        code.textContent = c;
+        code.className = "backup-code";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn--tiny btn--ghost";
+        btn.textContent = "Copy";
+        btn.addEventListener("click", () => {
+          void navigator.clipboard.writeText(c).then(() => setStatus("Copied to clipboard.", false));
+        });
+        li.appendChild(code);
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+    }
+    setStatus("2FA enabled. Store your backup codes safely.", false);
+    setResult({ status: "two_factor_enabled", hint: "Backup codes are listed in this dialog only." }, false);
+    main
     await refreshTwoFactorStatus();
   } catch (err) {
     setStatus(apiErrorMessage(err) || "Enable 2FA failed.", true);
