@@ -60,7 +60,7 @@ class BruteForceProtectionService:
                 f"Too many failed attempts. Retry in {max(ttl, 1)} seconds"
             )
 
-    async def record_failure(self, *, scope: str, identifier: str) -> None:
+    async def record_failure(self, *, scope: str, identifier: str) -> int:
         policy = self._policy(scope)
         key_identifier = self._identifier_digest(identifier)
         fail_key = brute_force_fail_key(scope=scope, identifier=key_identifier)
@@ -73,6 +73,8 @@ class BruteForceProtectionService:
         if attempts >= policy.max_attempts:
             await self.redis.set(lock_key, "1", ex=policy.lock_seconds)
             await self.redis.delete(fail_key)
+
+        return attempts
 
     async def clear_failures(self, *, scope: str, identifier: str) -> None:
         key_identifier = self._identifier_digest(identifier)

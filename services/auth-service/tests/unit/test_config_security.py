@@ -39,6 +39,9 @@ def test_smtp_from_email_falls_back_to_username(monkeypatch: pytest.MonkeyPatch)
     _set_required_env(monkeypatch)
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_USERNAME", "mailer@example.com")
+    # Do not inherit SMTP_FROM_* from a developer .env file in the service directory.
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+    monkeypatch.setenv("SMTP_FROM_NAME", "")
 
     settings = Settings()
 

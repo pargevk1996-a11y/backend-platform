@@ -58,6 +58,8 @@ services:
       dockerfile: infra/docker/auth-service.Dockerfile
     container_name: auth-service
     restart: unless-stopped
+    # SMTP_*, SUPPORT_EMAIL, LOGIN_MAX_FAILED_ATTEMPTS, RESET_CODE_MAX_FAILED_ATTEMPTS: set in
+    # ../../services/auth-service/.env (merged into the container with the overrides below).
     env_file:
       - ../../services/auth-service/.env
     environment:
@@ -88,8 +90,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # backend is internal-only; SMTP to smtp.gmail.com needs outbound DNS + TCP egress.
     networks:
       - backend
+      - edge
 
   user-service:
     build:

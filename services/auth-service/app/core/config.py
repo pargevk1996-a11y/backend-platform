@@ -68,7 +68,14 @@ class Settings(BaseSettings):
     rate_limit_register_per_minute: int = 5
     rate_limit_password_reset_per_minute: int = 5
 
-    brute_force_login_max_attempts: int = 5
+    brute_force_login_max_attempts: int = Field(
+        default=3,
+        validation_alias=AliasChoices(
+            "BRUTE_FORCE_LOGIN_MAX_ATTEMPTS",
+            "LOGIN_MAX_FAILED_ATTEMPTS",
+            "brute_force_login_max_attempts",
+        ),
+    )
     brute_force_login_window_seconds: int = 300
     brute_force_login_lock_seconds: int = 900
 
@@ -76,7 +83,14 @@ class Settings(BaseSettings):
     brute_force_2fa_window_seconds: int = 300
     brute_force_2fa_lock_seconds: int = 900
 
-    brute_force_password_reset_max_attempts: int = 5
+    brute_force_password_reset_max_attempts: int = Field(
+        default=3,
+        validation_alias=AliasChoices(
+            "BRUTE_FORCE_PASSWORD_RESET_MAX_ATTEMPTS",
+            "RESET_CODE_MAX_FAILED_ATTEMPTS",
+            "brute_force_password_reset_max_attempts",
+        ),
+    )
     brute_force_password_reset_window_seconds: int = 300
     brute_force_password_reset_lock_seconds: int = 900
 
@@ -115,6 +129,10 @@ class Settings(BaseSettings):
     auth_allow_missing_smtp: bool = Field(
         default=False,
         validation_alias=AliasChoices("AUTH_ALLOW_MISSING_SMTP", "auth_allow_missing_smtp"),
+    )
+    support_email: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SUPPORT_EMAIL", "support_email"),
     )
 
     argon2_time_cost: int = 3
@@ -168,6 +186,20 @@ class Settings(BaseSettings):
             Fernet(raw)
         except Exception as exc:
             raise ValueError("TOTP_ENCRYPTION_KEY must be a valid Fernet key") from exc
+        return value
+
+    @field_validator(
+        "smtp_host",
+        "smtp_username",
+        "smtp_from_email",
+        "smtp_from_name",
+        "support_email",
+        mode="before",
+    )
+    @classmethod
+    def _blank_smtp_strings_to_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @model_validator(mode="after")
@@ -250,6 +282,27 @@ class Settings(BaseSettings):
             ]
         )
         return self.service_env != "development" or smtp_partially_configured
+
+    @property
+    def support_contact_sentence(self) -> str:
+        if self.support_email:
+            return f"If you need assistance, email {self.support_email}."
+        return "If you need assistance, contact your platform administrator."
+
+    @property
+    def account_login_locked_message(self) -> str:
+        return (
+            "Too many failed sign-in attempts. Password sign-in is blocked for this account. "
+            "Use password reset with your email to regain access. "
+            + self.support_contact_sentence
+        )
+
+    @property
+    def password_reset_flow_blocked_message(self) -> str:
+        return (
+            "Self-service password reset is not available for this account for security reasons. "
+            + self.support_contact_sentence
+        )
 
 
 @lru_cache(maxsize=1)
