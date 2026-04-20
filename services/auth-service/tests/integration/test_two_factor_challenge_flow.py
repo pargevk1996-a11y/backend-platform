@@ -19,6 +19,7 @@ class FakeUser:
     password_hash: str
     two_factor_enabled: bool
     is_active: bool = True
+    login_blocked: bool = False
 
 
 class FakeSession:
@@ -27,6 +28,9 @@ class FakeSession:
 
     async def commit(self) -> None:
         self.commit_calls += 1
+
+    async def flush(self) -> None:
+        return None
 
 
 class FakeRedis:
@@ -91,8 +95,9 @@ class FakeBruteForceService:
     async def assert_not_locked(self, *, scope: str, identifier: str) -> None:
         _ = (scope, identifier)
 
-    async def record_failure(self, *, scope: str, identifier: str) -> None:
+    async def record_failure(self, *, scope: str, identifier: str) -> int:
         _ = (scope, identifier)
+        return 1
 
     async def clear_failures(self, *, scope: str, identifier: str) -> None:
         _ = (scope, identifier)

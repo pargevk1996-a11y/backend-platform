@@ -18,7 +18,11 @@ from app.core.constants import (
     AUDIT_REGISTER_SUCCESS,
 )
 from app.core.privacy import normalize_optional, stable_hmac_digest
-from app.exceptions.auth import InvalidCredentialsException, UserAlreadyExistsException
+from app.exceptions.auth import (
+    AccountLoginBlockedException,
+    InvalidCredentialsException,
+    UserAlreadyExistsException,
+)
 from app.exceptions.token import InvalidTokenException, TokenReuseDetectedException
 from app.exceptions.two_factor import InvalidChallengeException, InvalidTwoFactorCodeException
 from app.integrations.redis.keys import access_session_revoked_key, login_challenge_key
@@ -108,9 +112,12 @@ class AuthService:
         normalized_email = email.lower()
         identifier = f"{normalized_email}:{ip_address or 'unknown'}"
 
+        user = await self.user_repository.get_by_email(session, normalized_email)
+        if user is not None and user.login_blocked:
+            raise AccountLoginBlockedException(self.settings.account_login_locked_message)
+
         await self.brute_force_service.assert_not_locked(scope="login", identifier=identifier)
 
-        user = await self.user_repository.get_by_email(session, normalized_email)
         if user is not None:
             await self.brute_force_service.assert_not_locked(
                 scope="login_account", identifier=normalized_email
@@ -124,9 +131,41 @@ class AuthService:
         if not password_ok:
             await self.brute_force_service.record_failure(scope="login", identifier=identifier)
             if user is not None:
-                await self.brute_force_service.record_failure(
+                acct_attempts = await self.brute_force_service.record_failure(
                     scope="login_account", identifier=normalized_email
                 )
+                if acct_attempts >= self.settings.brute_force_login_max_attempts:
+                    user.login_blocked = True
+                    await session.flush()
+                    # #region agent log
+                    try:
+                        import json
+                        import time
+
+                        with open(
+                            "/home/pash666/backend-platform/.cursor/debug-b7feee.log",
+                            "a",
+                            encoding="utf-8",
+                        ) as _lf:
+                            _lf.write(
+                                json.dumps(
+                                    {
+                                        "sessionId": "b7feee",
+                                        "hypothesisId": "H1",
+                                        "location": "auth_service.py:login",
+                                        "message": "login_account_locked_after_attempts",
+                                        "data": {
+                                            "acct_attempts": acct_attempts,
+                                            "max": self.settings.brute_force_login_max_attempts,
+                                        },
+                                        "timestamp": int(time.time() * 1000),
+                                    }
+                                )
+                                + "\n"
+                            )
+                    except Exception:
+                        pass
+                    # #endregion
             await self.audit_service.log_event(
                 session,
                 event_type=AUDIT_LOGIN_FAILED,

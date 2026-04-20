@@ -85,7 +85,7 @@ async def test_email_provider_uses_starttls_for_tls_non_ssl_port(
         def ehlo(self) -> None:
             return None
 
-        def starttls(self) -> None:
+        def starttls(self, context=None) -> None:
             self.starttls_called = True
 
         def login(self, username: str, password: str) -> None:

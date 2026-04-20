@@ -129,7 +129,8 @@
           <div class="subsection-title">Second factor</div>
           <div class="row">
             <label>Authenticator code</label>
-            <input id="totpCode" autocomplete="off" placeholder="123456" />
+            <input id="totpCode" class="login-totp-input" autocomplete="off" placeholder="123456" />
+            <p id="loginTotpError" class="inline-field-error hidden" role="alert" aria-live="polite"></p>
           </div>
           <button id="login2faBtn" class="btn">Verify 2FA</button>
         </div>
@@ -171,7 +172,8 @@
           <ul class="backup-list" id="modalBackupList"></ul>
           <p class="note">Scan the QR with your authenticator app, then enter the current code and confirm.</p>
           <label for="modalEnableTotp">Authenticator code</label>
-          <input id="modalEnableTotp" autocomplete="off" inputmode="numeric" placeholder="123456" />
+          <input id="modalEnableTotp" class="modal__totp-input" autocomplete="off" inputmode="numeric" placeholder="123456" />
+          <p id="modalEnableTotpError" class="modal__field-error hidden" role="alert" aria-live="polite"></p>
           <button type="button" id="modalConfirmEnableBtn" class="btn">Confirm and enable</button>
         </div>
       </div>
@@ -203,6 +205,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260421-auth-ui-2fa-qr-guest-reset"></script>
+    <script src="./app.js?v=20260421-auth-security-ui"></script>
   </body>
 </html>
