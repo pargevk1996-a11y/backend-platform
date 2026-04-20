@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import hmac
 import logging
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from secrets import randbelow
 from uuid import UUID
 
 from redis.asyncio import Redis
-from smtplib import SMTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -20,9 +19,9 @@ from app.exceptions.auth import (
     PasswordResetFlowBlockedException,
     ServiceUnavailableException,
 )
-from app.models.user import User
 from app.integrations.email.provider import EmailProvider
 from app.integrations.redis.keys import access_session_revoked_key
+from app.models.user import User
 from app.repositories.password_reset_repository import PasswordResetRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
@@ -70,7 +69,7 @@ class PasswordResetService:
         return hmac.new(pepper, raw_token.encode("utf-8"), sha256).hexdigest()
 
     def _generate_code(self) -> str:
-        return f"{randbelow(1_000_000):06d}"
+        return f"{secrets.randbelow(1_000_000):06d}"
 
     async def _mark_access_sessions_revoked(self, session_ids: list[UUID]) -> None:
         for session_id in session_ids:
@@ -121,17 +120,11 @@ class PasswordResetService:
             requested_user_agent=normalize_optional(user_agent),
         )
 
-        app_name = self.settings.totp_issuer
         ttl_minutes = max(1, self.settings.password_reset_token_ttl_value // 60)
-        # ASCII subject only: non-ASCII punctuation can break some SMTP paths without SMTPUTF8.
-        subject = f"{app_name} - password reset"
+        subject = "Password reset code"
         body = (
-            f"Hello,\n\n"
-            f"We received a request to reset your password for {app_name}.\n\n"
-            "To restore your password, enter the following 6-digit code in the form:\n\n"
-            f"{code}\n\n"
-            f"This code expires in {ttl_minutes} minutes.\n\n"
-            "If you did not request a password reset, you can ignore this email.\n"
+            f"Your 6-digit password reset code is: {code}\n\n"
+            f"This code expires in {ttl_minutes} minutes.\n"
         )
         try:
             sent = await self.email_provider.send(
@@ -144,7 +137,7 @@ class PasswordResetService:
                 raise ServiceUnavailableException(
                     "Unable to send password reset email. Check SMTP settings or try again later."
                 )
-        except (SMTPException, OSError, RuntimeError) as exc:
+        except Exception as exc:
             await session.rollback()
             LOGGER.exception(
                 "password_reset.email_send_failed",
@@ -152,6 +145,7 @@ class PasswordResetService:
                     "user_id": str(user.id),
                     "smtp_host": self.settings.smtp_host,
                     "smtp_port": self.settings.smtp_port,
+                    "exc_type": type(exc).__name__,
                 },
             )
             raise ServiceUnavailableException(

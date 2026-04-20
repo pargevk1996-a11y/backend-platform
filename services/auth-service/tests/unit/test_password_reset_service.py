@@ -221,6 +221,30 @@ async def test_request_reset_email_failure_returns_service_unavailable() -> None
 
 
 @pytest.mark.asyncio
+async def test_request_reset_email_unexpected_exception_returns_service_unavailable() -> None:
+    """Non-SMTP/OSError errors from the email layer map to 503, not an unhandled 500."""
+
+    class WeirdEmail(FakeEmailProvider):
+        async def send(self, *, to_email: str, subject: str, body: str) -> None:
+            _ = (to_email, subject, body)
+            raise ValueError("unexpected smtp layer failure")
+
+    user = FakeUser(id=uuid4(), email="user@example.com")
+    service, *_rest = _build_service(user)
+    service.email_provider = WeirdEmail()
+
+    sess = FakeSession()
+    with pytest.raises(ServiceUnavailableException):
+        await service.request_reset(
+            sess,
+            email=user.email,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )
+    assert sess.rollback_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_request_reset_invalidates_existing_active_codes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
