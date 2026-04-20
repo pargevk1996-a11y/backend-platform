@@ -583,7 +583,11 @@ async function confirmEnable2faFromModal() {
   setStatus("Enabling 2FA...", false);
   try {
     const token = ensureAccessToken();
+    sync/local-main-2026-04-19
     await post("/v1/two-factor/enable", { totp_code: totpRaw }, token);
+    const totp = ensureTotp($("modalEnableTotp").value);
+    await post("/v1/two-factor/enable", { totp_code: totp }, token);
+    main
     closeModal($("enable2faModal"));
     resetEnableModal();
     setStatus("Two-factor authentication is enabled.", false);
