@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
-from app.exceptions.auth import BadRequestException
+from app.exceptions.auth import BadRequestException, ServiceUnavailableException
 from app.services.password_reset_service import PasswordResetService
 
 
@@ -177,6 +177,26 @@ def _build_service(user: FakeUser | None):
         email_provider,
         brute_force_service,
     )
+
+
+@pytest.mark.asyncio
+async def test_request_reset_email_failure_returns_service_unavailable() -> None:
+    class BoomEmail(FakeEmailProvider):
+        async def send(self, *, to_email: str, subject: str, body: str) -> None:
+            _ = (to_email, subject, body)
+            raise OSError("smtp down")
+
+    user = FakeUser(id=uuid4(), email="user@example.com")
+    service, *_rest = _build_service(user)
+    service.email_provider = BoomEmail()
+
+    with pytest.raises(ServiceUnavailableException):
+        await service.request_reset(
+            FakeSession(),
+            email=user.email,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )
 
 
 @pytest.mark.asyncio

@@ -102,27 +102,29 @@
             <input id="resetEmail" autocomplete="off" placeholder="user@example.com" />
           </div>
           <button id="resetRequestBtn" class="btn btn--ghost">Send reset code</button>
-          <div class="row">
-            <label>Reset code</label>
-            <input id="resetCode" autocomplete="off" placeholder="6-digit code" />
-          </div>
-          <div class="row">
-            <label for="resetPassword">New password</label>
-            <div class="password-field">
-              <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" />
-              <button
-                type="button"
-                class="password-toggle"
-                aria-label="Show password"
-                title="Show password"
-                aria-pressed="false"
-                data-password-target="resetPassword"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
+          <div id="resetPhase2" class="hidden">
+            <div class="row">
+              <label>Reset code</label>
+              <input id="resetCode" autocomplete="off" placeholder="6-digit code" disabled />
             </div>
+            <div class="row">
+              <label for="resetPassword">New password</label>
+              <div class="password-field">
+                <input id="resetPassword" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" disabled />
+                <button
+                  type="button"
+                  class="password-toggle"
+                  aria-label="Show password"
+                  title="Show password"
+                  aria-pressed="false"
+                  data-password-target="resetPassword"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+            <button id="resetConfirmBtn" class="btn" type="button" disabled>Reset password</button>
           </div>
-          <button id="resetConfirmBtn" class="btn">Reset password</button>
         </div>
 
         <div class="divider"></div>
@@ -166,6 +168,11 @@
           <div class="modal__qr-wrap">
             <img id="modalQrImage" alt="" width="200" height="200" />
           </div>
+          <div class="row">
+            <button type="button" id="modalOpenQrTabBtn" class="btn btn--ghost btn--tiny" disabled>
+              Open QR in new tab
+            </button>
+          </div>
           <p class="note">Scan the QR with your authenticator app, then enter the current code.</p>
           <label for="modalEnableTotp">Authenticator code</label>
           <input id="modalEnableTotp" autocomplete="off" inputmode="numeric" placeholder="123456" />
@@ -207,6 +214,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260420-auth-ui-modal-2fa"></script>
+    <script src="./app.js?v=20260420-auth-ui-merge-main"></script>
   </body>
 </html>
