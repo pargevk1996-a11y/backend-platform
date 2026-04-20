@@ -25,3 +25,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.compose run --rm user-
 docker compose -f docker-compose.prod.yml --env-file .env.compose up -d --force-recreate auth-service user-service api-gateway
 
 echo "OK: stack is up. Gateway (default): http://127.0.0.1:\${GATEWAY_PORT:-8080}/ui/"
+echo ""
+echo "If auth-service shows password authentication failed for user auth_service:"
+echo "  Postgres keeps the role password from the FIRST init of the volume; changing"
+echo "  AUTH_DB_PASSWORD in .env.compose alone does not update the DB. Either restore the"
+echo "  original AUTH_DB_PASSWORD, or (DESTRUCTIVE) remove volume postgres_auth_data after"
+echo "  docker compose down, then bring the stack up again and re-run migrations."
