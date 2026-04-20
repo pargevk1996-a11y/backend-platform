@@ -4,6 +4,7 @@ import asyncio
 import logging
 import smtplib
 from email.message import EmailMessage
+from email.utils import formataddr
 from smtplib import SMTPException
 
 LOGGER = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class EmailProvider:
         password: str | None,
         use_tls: bool,
         from_email: str | None,
+        from_name: str | None = None,
         require_delivery: bool,
     ) -> None:
         self.host = host
@@ -29,6 +31,7 @@ class EmailProvider:
         self.password = password
         self.use_tls = use_tls
         self.from_email = from_email
+        self.from_name = (from_name or "").strip() or None
         self.require_delivery = require_delivery
 
     async def send(self, *, to_email: str, subject: str, body: str) -> None:
@@ -44,7 +47,10 @@ class EmailProvider:
         host = self.host
         from_email = self.from_email
         message = EmailMessage()
-        message["From"] = from_email
+        if self.from_name:
+            message["From"] = formataddr((self.from_name, from_email))
+        else:
+            message["From"] = from_email
         message["To"] = to_email
         message["Subject"] = subject
         message.set_content(body)
