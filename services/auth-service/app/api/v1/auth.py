@@ -130,13 +130,13 @@ async def request_password_reset(
     session: AsyncSession = Depends(get_session),
     reset_service: PasswordResetService = Depends(get_password_reset_service),
 ) -> PasswordResetResponse:
-    await reset_service.request_reset(
+    result = await reset_service.request_reset(
         session,
         email=payload.email,
         ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
-    return PasswordResetResponse()
+    return PasswordResetResponse(email_sent=result.email_sent)
 
 
 @router.post(
