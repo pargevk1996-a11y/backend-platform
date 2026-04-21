@@ -53,8 +53,13 @@ def _quote_env_value(val: str) -> str:
 
 def _resolve_smtp_for_auth_env(compose: dict[str, str], secrets_dir: Path) -> dict[str, str]:
     """Merge SMTP from infra/compose/.env.compose + optional secrets/*.txt (no secrets printed)."""
-    smtp_pw_path = secrets_dir / "smtp_password.txt"
-    smtp_password = _read_text(smtp_pw_path) if smtp_pw_path.is_file() else ""
+    app_pw_path = secrets_dir / "smtp_app_password.txt"
+    legacy_pw_path = secrets_dir / "smtp_password.txt"
+    smtp_password = ""
+    if app_pw_path.is_file():
+        smtp_password = _read_text(app_pw_path)
+    if not smtp_password and legacy_pw_path.is_file():
+        smtp_password = _read_text(legacy_pw_path)
     if not smtp_password:
         smtp_password = _compose_get(compose, "SMTP_PASSWORD")
 

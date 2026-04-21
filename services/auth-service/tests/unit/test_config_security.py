@@ -68,6 +68,27 @@ def test_smtp_password_read_from_file_when_env_empty(
     assert settings.smtp_password_value == "sixteen-char-appwd"
 
 
+def test_smtp_password_legacy_file_when_canonical_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Legacy secrets/smtp_password.txt still works if smtp_app_password.txt is absent."""
+    _set_required_env(monkeypatch)
+    legacy = tmp_path / "smtp_password.txt"
+    legacy.write_text("sixteen-char-appwd\n", encoding="utf-8")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.delenv("SMTP_PASSWORD_FILE", raising=False)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "mailer@example.com")
+
+    from app.core import config as config_module
+
+    monkeypatch.setattr(config_module, "_DEFAULT_SMTP_APP_PASSWORD_FILE", tmp_path / "missing.txt")
+    monkeypatch.setattr(config_module, "_LEGACY_SMTP_PASSWORD_FILE", legacy)
+
+    settings = Settings()
+    assert settings.smtp_password_value == "sixteen-char-appwd"
+
+
 def test_smtp_ec2_defaults_identity_file_and_gmail_host(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -78,7 +99,7 @@ def test_smtp_ec2_defaults_identity_file_and_gmail_host(
     pw_file = tmp_path / "smtp_password.txt"
     pw_file.write_text("sixteen-char-appwd\n", encoding="utf-8")
     monkeypatch.setenv("SMTP_PASSWORD", "")
-    monkeypatch.setenv("SMTP_PASSWORD_FILE", str(pw_file))
+    monkeypatch.delenv("SMTP_PASSWORD_FILE", raising=False)
     monkeypatch.setenv("SMTP_HOST", "")
     monkeypatch.setenv("SMTP_USERNAME", "")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "")
@@ -86,7 +107,7 @@ def test_smtp_ec2_defaults_identity_file_and_gmail_host(
     from app.core import config as config_module
 
     monkeypatch.setattr(config_module, "_SMTP_IDENTITY_FILE", id_file)
-    monkeypatch.setattr(config_module, "_DEFAULT_SMTP_PASSWORD_FILE", pw_file)
+    monkeypatch.setattr(config_module, "_DEFAULT_SMTP_APP_PASSWORD_FILE", pw_file)
 
     settings = Settings()
 
