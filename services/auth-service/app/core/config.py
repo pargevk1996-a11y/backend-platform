@@ -21,8 +21,11 @@ ALLOWED_JWT_ALGORITHMS = {
 }
 MIN_SECRET_LENGTH = 32
 
-# Repo root: services/auth-service/app/core/config.py → parents[4] == backend-platform
+# config.py lives at services/auth-service/app/core/config.py
 _SETTINGS_FILE = Path(__file__).resolve()
+_AUTH_SERVICE_ROOT = _SETTINGS_FILE.parents[2]
+_AUTH_ENV_FILE = _AUTH_SERVICE_ROOT / ".env"
+# Repo root (backend-platform): parents[4]
 _REPO_ROOT = _SETTINGS_FILE.parents[4]
 _DEFAULT_SMTP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_password.txt"
 _SMTP_IDENTITY_FILE = _REPO_ROOT / "secrets" / "smtp_identity_email.txt"
@@ -42,10 +45,10 @@ def _normalize_smtp_identity_line(raw: str) -> str:
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from service-specific .env."""
+    """Application settings: always load ``services/auth-service/.env`` (not CWD-relative)."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_AUTH_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

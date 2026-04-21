@@ -1,7 +1,7 @@
 """SMTP email delivery.
 
-SMTP credentials (including optional file-backed ``SMTP_PASSWORD``) are passed in from ``Settings``
-(see ``get_email_provider``).
+Values are built in ``get_email_provider`` from ``Settings``, which reads
+``services/auth-service/.env`` (and process env overrides), not this module directly.
 """
 
 from __future__ import annotations
