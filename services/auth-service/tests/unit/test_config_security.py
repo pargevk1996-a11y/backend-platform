@@ -68,6 +68,34 @@ def test_smtp_password_read_from_file_when_env_empty(
     assert settings.smtp_password_value == "sixteen-char-appwd"
 
 
+def test_smtp_ec2_defaults_identity_file_and_gmail_host(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Password + smtp_identity_email.txt without SMTP_HOST still yields configured SMTP."""
+    _set_required_env(monkeypatch)
+    id_file = tmp_path / "smtp_identity_email.txt"
+    id_file.write_text("shipper@gmail.com\n", encoding="utf-8")
+    pw_file = tmp_path / "smtp_password.txt"
+    pw_file.write_text("sixteen-char-appwd\n", encoding="utf-8")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("SMTP_PASSWORD_FILE", str(pw_file))
+    monkeypatch.setenv("SMTP_HOST", "")
+    monkeypatch.setenv("SMTP_USERNAME", "")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+
+    from app.core import config as config_module
+
+    monkeypatch.setattr(config_module, "_SMTP_IDENTITY_FILE", id_file)
+    monkeypatch.setattr(config_module, "_DEFAULT_SMTP_PASSWORD_FILE", pw_file)
+
+    settings = Settings()
+
+    assert settings.smtp_host == "smtp.gmail.com"
+    assert settings.smtp_username == "shipper@gmail.com"
+    assert settings.smtp_from_email == "shipper@gmail.com"
+    assert settings.smtp_is_configured
+
+
 def test_development_requires_delivery_when_smtp_is_partially_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
