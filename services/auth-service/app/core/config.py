@@ -27,7 +27,9 @@ _AUTH_SERVICE_ROOT = _SETTINGS_FILE.parents[2]
 _AUTH_ENV_FILE = _AUTH_SERVICE_ROOT / ".env"
 # Repo root (backend-platform): parents[4]
 _REPO_ROOT = _SETTINGS_FILE.parents[4]
-_DEFAULT_SMTP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_password.txt"
+# Gmail App Password (canonical name); legacy alias: smtp_password.txt
+_DEFAULT_SMTP_APP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_app_password.txt"
+_LEGACY_SMTP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_password.txt"
 _SMTP_IDENTITY_FILE = _REPO_ROOT / "secrets" / "smtp_identity_email.txt"
 
 
@@ -231,46 +233,52 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _load_smtp_password_from_file(self) -> Self:
-        """When SMTP_PASSWORD is unset or blank, load it from file (env or default repo path)."""
+        """Fill SMTP password from env SMTP_PASSWORD_FILE or secrets/*.txt candidates."""
         if self.smtp_password is not None:
             if _normalize_smtp_secret(self.smtp_password.get_secret_value()):
                 return self
 
-        raw_path = (self.smtp_password_file or "").strip()
-        path = Path(raw_path) if raw_path else _DEFAULT_SMTP_PASSWORD_FILE
-        if not path.is_file():
-        deploy/smtp-ec2-mail-delivery
-            return self
+        explicit = (self.smtp_password_file or "").strip()
+        candidates: list[Path] = []
+        if explicit:
+            candidates.append(Path(explicit))
+        candidates.extend(
+            [
+                _DEFAULT_SMTP_APP_PASSWORD_FILE,
+                _LEGACY_SMTP_PASSWORD_FILE,
+            ]
+        )
 
-        try:
-            raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
-        except OSError:
-            return self
-        if not raw:
-            return self
+        seen: set[str] = set()
+        for path in candidates:
+            try:
+                key = str(path.resolve())
+            except OSError:
+                key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            if not path.is_file():
+                continue
+            try:
+                raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            if raw:
+                self.smtp_password = SecretStr(raw)
+                return self
 
-            return self
-
-        raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
-        if not raw:
-            return self
-
-        main
-        self.smtp_password = SecretStr(raw)
         return self
 
     @model_validator(mode="after")
     def _apply_smtp_ec2_defaults(self) -> Self:
         """Fill host/mailbox from repo secrets when env is incomplete (typical on EC2)."""
         if _SMTP_IDENTITY_FILE.is_file():
-    deploy/smtp-ec2-mail-delivery
             try:
                 id_raw = _SMTP_IDENTITY_FILE.read_text(encoding="utf-8")
             except OSError:
                 id_raw = ""
             ident = _normalize_smtp_identity_line(id_raw)
-            ident = _normalize_smtp_identity_line(_SMTP_IDENTITY_FILE.read_text(encoding="utf-8"))
-            main
             if ident and not self.smtp_username and not self.smtp_from_email:
                 self.smtp_username = ident
                 self.smtp_from_email = ident
