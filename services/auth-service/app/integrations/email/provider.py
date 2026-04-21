@@ -1,3 +1,9 @@
+"""SMTP email delivery.
+
+SMTP credentials (including optional file-backed ``SMTP_PASSWORD``) are passed in from ``Settings``
+(see ``get_email_provider``).
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +43,7 @@ class EmailProvider:
 
 
     async def send(self, *, to_email: str, subject: str, body: str) -> bool | None:
-        """Return True if SMTP delivery was attempted and completed, None if intentionally skipped."""
+        """True after successful SMTP send; None if delivery was intentionally skipped."""
         if not self.host or not self.from_email:
             if self.require_delivery:
                 raise RuntimeError("Email delivery is not configured")

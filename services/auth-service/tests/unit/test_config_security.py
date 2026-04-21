@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from app.core.config import Settings
 from cryptography.fernet import Fernet
@@ -47,6 +49,23 @@ def test_smtp_from_email_falls_back_to_username(monkeypatch: pytest.MonkeyPatch)
 
     assert settings.smtp_from_email_value == "mailer@example.com"
     assert settings.smtp_is_configured
+
+
+def test_smtp_password_read_from_file_when_env_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _set_required_env(monkeypatch)
+    pw_file = tmp_path / "smtp_password.txt"
+    pw_file.write_text("sixteen-char-appwd\n", encoding="utf-8")
+    # Prefer empty env password so .env cannot override the temp file in CI/dev.
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("SMTP_PASSWORD_FILE", str(pw_file))
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "mailer@example.com")
+
+    settings = Settings()
+
+    assert settings.smtp_password_value == "sixteen-char-appwd"
 
 
 def test_development_requires_delivery_when_smtp_is_partially_configured(
