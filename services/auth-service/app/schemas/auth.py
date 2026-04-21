@@ -73,3 +73,5 @@ class PasswordResetResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str = "ok"
+    """False when outbound email was skipped (e.g. SMTP not configured with AUTH_ALLOW_MISSING_SMTP)."""
+    email_sent: bool = True

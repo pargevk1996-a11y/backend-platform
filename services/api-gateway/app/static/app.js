@@ -731,7 +731,17 @@ $("resetRequestBtn").addEventListener("click", async () => {
       setStatus("Email is required for password reset.", true);
       return;
     }
-    await post("/v1/auth/password/forgot", { email });
+    const forgotBody = await post("/v1/auth/password/forgot", { email });
+    if (forgotBody && forgotBody.email_sent === false) {
+      state.passwordResetCodeSent = false;
+      syncResetPhaseControls();
+      setStatus(
+        "Reset email was not sent: outbound mail is not configured on the server. Ask an administrator to set SMTP (or deploy secrets).",
+        true
+      );
+      setResult(forgotBody, true);
+      return;
+    }
     state.passwordResetCodeSent = true;
     syncResetPhaseControls();
     setStatus("If the email exists, a reset code was sent. Enter it below with a new password.", false);
