@@ -71,11 +71,9 @@ services:
       TRUSTED_PROXY_IPS: 172.16.0.0/12
       # Overrides empty/missing lines in generated .env on EC2 so password reset sees SMTP as configured.
       SMTP_HOST: smtp.gmail.com
-      SMTP_PASSWORD_FILE: /app/secrets/smtp_password.txt
-      deploy/smtp-ec2-mail-delivery
+      SMTP_PASSWORD_FILE: /app/secrets/smtp_app_password.txt
       # Default true so auth-service starts when secrets are incomplete; set AUTH_ALLOW_MISSING_SMTP=false in .env.compose when mail is fully wired.
       AUTH_ALLOW_MISSING_SMTP: ${AUTH_ALLOW_MISSING_SMTP:-true}
-      main
     volumes:
       - ../../secrets:/app/secrets:ro
     depends_on:
