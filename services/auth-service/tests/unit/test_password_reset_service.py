@@ -10,6 +10,7 @@ from app.exceptions.auth import (
     BadRequestException,
     PasswordResetFlowBlockedException,
     ServiceUnavailableException,
+    UnknownUserPasswordResetException,
 )
 from app.services.password_reset_service import PasswordResetService
 
@@ -196,6 +197,20 @@ def _build_service(user: FakeUser | None):
         email_provider,
         brute_force_service,
     )
+
+
+@pytest.mark.asyncio
+async def test_request_reset_unknown_user_raises() -> None:
+    service, *_rest = _build_service(user=None)
+    sess = FakeSession()
+    with pytest.raises(UnknownUserPasswordResetException) as exc_info:
+        await service.request_reset(
+            sess,
+            email="nobody@example.com",
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )
+    assert "No user is registered with this email address." in str(exc_info.value)
 
 
 @pytest.mark.asyncio

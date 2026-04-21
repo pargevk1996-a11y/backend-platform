@@ -19,6 +19,7 @@ from app.exceptions.auth import (
     BadRequestException,
     PasswordResetFlowBlockedException,
     ServiceUnavailableException,
+    UnknownUserPasswordResetException,
 )
 from app.models.user import User
 from app.integrations.email.provider import EmailProvider
@@ -91,7 +92,7 @@ class PasswordResetService:
         normalized_email = email.lower()
         user = await self.user_repository.get_by_email(session, normalized_email)
         if user is None:
-            return PasswordResetRequestResult(email_sent=False)
+            raise UnknownUserPasswordResetException()
         if user.password_reset_blocked:
             raise PasswordResetFlowBlockedException(self.settings.password_reset_flow_blocked_message)
 
