@@ -74,6 +74,15 @@ def _resolve_smtp_for_auth_env(compose: dict[str, str], secrets_dir: Path) -> di
         or _compose_get(compose, "SMTP_FROM_NAME")
         or "Backend Platform"
     )
+    identity_fallback = _read_optional_one_line(secrets_dir / "smtp_identity_email.txt")
+    if not smtp_username and identity_fallback:
+        smtp_username = identity_fallback
+    if not smtp_from_email and identity_fallback:
+        smtp_from_email = identity_fallback
+
+    if smtp_password and not smtp_host:
+        smtp_host = "smtp.gmail.com"
+
     smtp_port = _compose_get(compose, "SMTP_PORT") or "587"
     tls_raw = _compose_get(compose, "SMTP_USE_TLS").lower()
     if tls_raw in ("false", "0", "no"):
@@ -171,9 +180,10 @@ def main() -> None:
         or "3"
     )
     support_email_raw = _compose_get(compose, "SUPPORT_EMAIL")
-    support_email_line = (
-        f"SUPPORT_EMAIL={_quote_env_value(support_email_raw)}" if support_email_raw else "SUPPORT_EMAIL="
-    )
+    if support_email_raw:
+        support_email_line = f"SUPPORT_EMAIL={_quote_env_value(support_email_raw)}"
+    else:
+        support_email_line = "SUPPORT_EMAIL="
 
     cors = ",".join(p.strip() for p in args.cors_origins.split(",") if p.strip())
 
