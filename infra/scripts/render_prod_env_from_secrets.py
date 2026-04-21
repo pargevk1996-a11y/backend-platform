@@ -85,9 +85,6 @@ def _resolve_smtp_for_auth_env(compose: dict[str, str], secrets_dir: Path) -> di
     if not smtp_from_email and identity_fallback:
         smtp_from_email = identity_fallback
 
-    if smtp_password and not smtp_host:
-        smtp_host = "smtp.gmail.com"
-
     smtp_port = _compose_get(compose, "SMTP_PORT") or "587"
     tls_raw = _compose_get(compose, "SMTP_USE_TLS").lower()
     if tls_raw in ("false", "0", "no"):

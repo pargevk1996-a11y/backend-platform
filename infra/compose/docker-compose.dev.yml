@@ -62,11 +62,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://auth_service:${AUTH_DB_PASSWORD}@postgres-auth:5432/auth_service
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SERVICE_ENV: development
-      SMTP_HOST: smtp.gmail.com
-      SMTP_USERNAME: pargevk1996@gmail.com
-      SMTP_FROM_EMAIL: pargevk1996@gmail.com
-      SMTP_FROM_NAME: Backend Platform
-      SMTP_PASSWORD_FILE: /app/secrets/smtp_app_password.txt
+    # SMTP_* only from ../../services/auth-service/.env (see .env.example).
     volumes:
       - ../../secrets:/app/secrets:ro
     ports:
