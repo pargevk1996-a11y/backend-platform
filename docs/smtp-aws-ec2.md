@@ -34,7 +34,16 @@ python3 infra/scripts/render_prod_env_from_secrets.py --cors-origins "${CORS_ORI
 bash infra/scripts/ec2_compose_up.sh
 ```
 
-Or [`infra/scripts/ec2_update.sh`](../infra/scripts/ec2_update.sh) if present on your branch (git pull + compose).
+Or pull latest and redeploy (same `CORS_ORIGINS` as above):
+
+```bash
+export CORS_ORIGINS="http://YOUR_PUBLIC_IP:8080,http://YOUR_PUBLIC_IP"
+# default is main; set when your EC2 tracks a feature branch:
+# export BRANCH=deploy/smtp-ec2-mail-delivery
+bash infra/scripts/ec2_update.sh
+```
+
+[`ec2_update.sh`](../infra/scripts/ec2_update.sh) runs `git fetch/checkout/pull` on `BRANCH` (default `main`) and then [`ec2_compose_up.sh`](../infra/scripts/ec2_compose_up.sh).
 
 ## File permissions
 

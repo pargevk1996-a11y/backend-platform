@@ -31,6 +31,7 @@ def _configure_test_env() -> None:
     # So password-reset request path treats SMTP as configured (tests use FakeEmailProvider).
     os.environ.setdefault("SMTP_HOST", "localhost")
     os.environ.setdefault("SMTP_FROM_EMAIL", "auth-tests@example.com")
+    os.environ.setdefault("SMTP_PASSWORD", "sixteen-char-appwd")
 
     from app.core.config import get_settings
 

@@ -391,6 +391,7 @@ async def test_request_reset_unconfigured_smtp_allow_missing_no_token(
 ) -> None:
     monkeypatch.setenv("SMTP_HOST", "")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
     monkeypatch.setenv("AUTH_ALLOW_MISSING_SMTP", "true")
     get_settings.cache_clear()
     user = FakeUser(id=uuid4(), email="nomail@example.com")
@@ -412,6 +413,7 @@ async def test_request_reset_unconfigured_smtp_strict_raises(
 ) -> None:
     monkeypatch.setenv("SMTP_HOST", "")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
     monkeypatch.setenv("AUTH_ALLOW_MISSING_SMTP", "false")
     get_settings.cache_clear()
     user = FakeUser(id=uuid4(), email="strict@example.com")
