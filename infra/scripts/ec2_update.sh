@@ -6,7 +6,7 @@
 #   cd ~/backend-platform
 #
 # Использование:
-#   export CORS_ORIGINS="http://ВАSH_PUBLIC_IP:8080,http://ВАSH_PUBLIC_IP"
+#   export CORS_ORIGINS="http://ВАШ_PUBLIC_IP:8080,http://ВАШ_PUBLIC_IP"
 #   bash infra/scripts/ec2_update.sh
 #
 # Необязательно: BRANCH=main — ветка для checkout и pull (по умолчанию main).
