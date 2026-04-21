@@ -69,6 +69,11 @@ services:
       # or ALTER ROLE auth_service PASSWORD inside the DB.
       SERVICE_ENV: production
       TRUSTED_PROXY_IPS: 172.16.0.0/12
+      # Overrides empty/missing lines in generated .env on EC2 so password reset sees SMTP as configured.
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PASSWORD_FILE: /app/secrets/smtp_password.txt
+    volumes:
+      - ../../secrets:/app/secrets:ro
     depends_on:
       postgres-auth:
         condition: service_healthy

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -27,7 +25,20 @@ MIN_SECRET_LENGTH = 32
 _SETTINGS_FILE = Path(__file__).resolve()
 _REPO_ROOT = _SETTINGS_FILE.parents[4]
 _DEFAULT_SMTP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_password.txt"
-_DEBUG_LOG_PATH = _REPO_ROOT / ".cursor" / "debug-11f15f.log"
+_SMTP_IDENTITY_FILE = _REPO_ROOT / "secrets" / "smtp_identity_email.txt"
+
+
+def _normalize_smtp_secret(raw: str) -> str:
+    """Strip and remove whitespace (Gmail app passwords are 16 chars without spaces)."""
+    s = raw.strip()
+    if not s:
+        return ""
+    return "".join(s.split())
+
+
+def _normalize_smtp_identity_line(raw: str) -> str:
+    line = raw.strip().splitlines()[0] if raw.strip() else ""
+    return line.strip()
 
 
 class Settings(BaseSettings):
@@ -218,76 +229,36 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _load_smtp_password_from_file(self) -> Self:
         """When SMTP_PASSWORD is unset or blank, load it from file (env or default repo path)."""
-        pwd = ""
         if self.smtp_password is not None:
-            pwd = self.smtp_password.get_secret_value().strip()
-        if pwd:
-            return self
+            if _normalize_smtp_secret(self.smtp_password.get_secret_value()):
+                return self
 
         raw_path = (self.smtp_password_file or "").strip()
         path = Path(raw_path) if raw_path else _DEFAULT_SMTP_PASSWORD_FILE
         if not path.is_file():
-            # region agent log
-            try:
-                payload = {
-                    "sessionId": "11f15f",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H1",
-                    "location": "config.py:_load_smtp_password_from_file",
-                    "message": "smtp_password file path resolved",
-                    "data": {
-                        "path": str(path),
-                        "exists": False,
-                        "loaded": False,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }
-                _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-                with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as _df:
-                    _df.write(json.dumps(payload) + "\n")
-            except OSError:
-                pass
-            # endregion
             return self
 
-        raw = path.read_text(encoding="utf-8").strip()
+        raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
         if not raw:
-            # region agent log
-            try:
-                payload = {
-                    "sessionId": "11f15f",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H1",
-                    "location": "config.py:_load_smtp_password_from_file",
-                    "message": "smtp_password file empty",
-                    "data": {"path": str(path), "exists": True, "loaded": False},
-                    "timestamp": int(time.time() * 1000),
-                }
-                with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as _df:
-                    _df.write(json.dumps(payload) + "\n")
-            except OSError:
-                pass
-            # endregion
             return self
-
-        # region agent log
-        try:
-            payload = {
-                "sessionId": "11f15f",
-                "runId": "pre-fix",
-                "hypothesisId": "H1",
-                "location": "config.py:_load_smtp_password_from_file",
-                "message": "smtp_password loaded from file",
-                "data": {"path": str(path), "exists": True, "loaded": True},
-                "timestamp": int(time.time() * 1000),
-            }
-            with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as _df:
-                _df.write(json.dumps(payload) + "\n")
-        except OSError:
-            pass
-        # endregion
 
         self.smtp_password = SecretStr(raw)
+        return self
+
+    @model_validator(mode="after")
+    def _apply_smtp_ec2_defaults(self) -> Self:
+        """Fill host/mailbox from repo secrets when env is incomplete (typical on EC2)."""
+        if _SMTP_IDENTITY_FILE.is_file():
+            ident = _normalize_smtp_identity_line(_SMTP_IDENTITY_FILE.read_text(encoding="utf-8"))
+            if ident and not self.smtp_username and not self.smtp_from_email:
+                self.smtp_username = ident
+                self.smtp_from_email = ident
+
+        pw = ""
+        if self.smtp_password is not None:
+            pw = _normalize_smtp_secret(self.smtp_password.get_secret_value())
+        if pw and not self.smtp_host:
+            self.smtp_host = "smtp.gmail.com"
         return self
 
     @model_validator(mode="after")
@@ -351,7 +322,8 @@ class Settings(BaseSettings):
     def smtp_password_value(self) -> str | None:
         if self.smtp_password is None:
             return None
-        return self.smtp_password.get_secret_value()
+        normalized = _normalize_smtp_secret(self.smtp_password.get_secret_value())
+        return normalized or None
 
     @property
     def smtp_is_configured(self) -> bool:
