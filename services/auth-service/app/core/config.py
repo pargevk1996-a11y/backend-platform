@@ -238,7 +238,10 @@ class Settings(BaseSettings):
         if not path.is_file():
             return self
 
-        raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
+        try:
+            raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
+        except OSError:
+            return self
         if not raw:
             return self
 
@@ -249,7 +252,11 @@ class Settings(BaseSettings):
     def _apply_smtp_ec2_defaults(self) -> Self:
         """Fill host/mailbox from repo secrets when env is incomplete (typical on EC2)."""
         if _SMTP_IDENTITY_FILE.is_file():
-            ident = _normalize_smtp_identity_line(_SMTP_IDENTITY_FILE.read_text(encoding="utf-8"))
+            try:
+                id_raw = _SMTP_IDENTITY_FILE.read_text(encoding="utf-8")
+            except OSError:
+                id_raw = ""
+            ident = _normalize_smtp_identity_line(id_raw)
             if ident and not self.smtp_username and not self.smtp_from_email:
                 self.smtp_username = ident
                 self.smtp_from_email = ident
