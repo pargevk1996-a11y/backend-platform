@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import time
 from functools import lru_cache
-from typing import Annotated, Literal
+from pathlib import Path
+from typing import Annotated, Literal, Self
 
 from cryptography.fernet import Fernet
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
@@ -19,6 +22,12 @@ ALLOWED_JWT_ALGORITHMS = {
     "ES512",
 }
 MIN_SECRET_LENGTH = 32
+
+# Repo root: services/auth-service/app/core/config.py → parents[4] == backend-platform
+_SETTINGS_FILE = Path(__file__).resolve()
+_REPO_ROOT = _SETTINGS_FILE.parents[4]
+_DEFAULT_SMTP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_password.txt"
+_DEBUG_LOG_PATH = _REPO_ROOT / ".cursor" / "debug-11f15f.log"
 
 
 class Settings(BaseSettings):
@@ -109,6 +118,10 @@ class Settings(BaseSettings):
     smtp_password: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("SMTP_PASSWORD", "smtp_password"),
+    )
+    smtp_password_file: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_PASSWORD_FILE", "smtp_password_file"),
     )
     smtp_require_delivery: bool | None = Field(
         default=None,
@@ -201,6 +214,81 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def _load_smtp_password_from_file(self) -> Self:
+        """When SMTP_PASSWORD is unset or blank, load it from file (env or default repo path)."""
+        pwd = ""
+        if self.smtp_password is not None:
+            pwd = self.smtp_password.get_secret_value().strip()
+        if pwd:
+            return self
+
+        raw_path = (self.smtp_password_file or "").strip()
+        path = Path(raw_path) if raw_path else _DEFAULT_SMTP_PASSWORD_FILE
+        if not path.is_file():
+            # region agent log
+            try:
+                payload = {
+                    "sessionId": "11f15f",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "config.py:_load_smtp_password_from_file",
+                    "message": "smtp_password file path resolved",
+                    "data": {
+                        "path": str(path),
+                        "exists": False,
+                        "loaded": False,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+                _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as _df:
+                    _df.write(json.dumps(payload) + "\n")
+            except OSError:
+                pass
+            # endregion
+            return self
+
+        raw = path.read_text(encoding="utf-8").strip()
+        if not raw:
+            # region agent log
+            try:
+                payload = {
+                    "sessionId": "11f15f",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "config.py:_load_smtp_password_from_file",
+                    "message": "smtp_password file empty",
+                    "data": {"path": str(path), "exists": True, "loaded": False},
+                    "timestamp": int(time.time() * 1000),
+                }
+                with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as _df:
+                    _df.write(json.dumps(payload) + "\n")
+            except OSError:
+                pass
+            # endregion
+            return self
+
+        # region agent log
+        try:
+            payload = {
+                "sessionId": "11f15f",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "config.py:_load_smtp_password_from_file",
+                "message": "smtp_password loaded from file",
+                "data": {"path": str(path), "exists": True, "loaded": True},
+                "timestamp": int(time.time() * 1000),
+            }
+            with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as _df:
+                _df.write(json.dumps(payload) + "\n")
+        except OSError:
+            pass
+        # endregion
+
+        self.smtp_password = SecretStr(raw)
+        return self
 
     @model_validator(mode="after")
     def _validate_deployed_security(self) -> Settings:
