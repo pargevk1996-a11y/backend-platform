@@ -58,3 +58,12 @@ class BadRequestException(AppException):
 class ServiceUnavailableException(AppException):
     def __init__(self, message: str = "Service unavailable") -> None:
         super().__init__(message=message, error_code="SERVICE_UNAVAILABLE", status_code=503)
+
+
+class UnknownUserPasswordResetException(AppException):
+    def __init__(self) -> None:
+        super().__init__(
+            message="No user is registered with this email address.",
+            error_code="USER_NOT_FOUND",
+            status_code=404,
+        )
