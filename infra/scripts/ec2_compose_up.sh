@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Full bring-up on a host with repo checkout, infra/compose/.env.compose, and secrets/ populated.
+# Обновление уже развёрнутого EC2: см. infra/scripts/ec2_update.sh (git pull + этот скрипт).
 # Usage:
 #   export CORS_ORIGINS="http://YOUR_PUBLIC_IP:8080,http://YOUR_PUBLIC_IP"
 #   bash infra/scripts/ec2_compose_up.sh
