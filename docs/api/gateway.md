@@ -29,6 +29,12 @@ All other routes are treated as protected and require `Authorization: Bearer <ac
 
 Same upstream behavior as `/v1/auth/*` and `/v1/tokens/*`, but successful token responses **strip** `refresh_token` from JSON and place it in an **HttpOnly** cookie (name `bp_rt` by default, see `REFRESH_COOKIE_*` env vars). Machine clients should continue to call **`/v1/auth/*` and `/v1/tokens/*`** so refresh material stays in the response body.
 
+#### Troubleshooting: `/ui` reload asks for sign-in again
+
+- The demo keeps the access JWT in memory only; reload uses **`POST /v1/browser-auth/refresh`** with the HttpOnly cookie.
+- If **`SERVICE_ENV`** is not `development`, the refresh cookie defaults to **`Secure`**. Browsers will not store or send it on **`http://`** — set **`REFRESH_COOKIE_SECURE=false`** on the gateway for plain-HTTP demos, or use HTTPS.
+- The **Gateway URL** field must match the page **origin** (scheme + host + port); otherwise the demo disables the same-origin cookie flow.
+
 ## Health endpoints
 
 ### `GET /v1/health/live`

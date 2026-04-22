@@ -411,7 +411,8 @@ button.password-toggle:hover {
   display: none;
 }
 
-.modal__totp-input.modal__totp-input--invalid {
+.modal__totp-input.modal__totp-input--invalid,
+.password-field input.modal-disable-password--invalid {
   outline: 1px solid var(--danger);
   outline-offset: 0;
   border-color: var(--danger);
