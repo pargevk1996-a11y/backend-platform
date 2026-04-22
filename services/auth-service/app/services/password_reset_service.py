@@ -122,18 +122,8 @@ class PasswordResetService:
             requested_user_agent=normalize_optional(user_agent),
         )
 
-        app_name = self.settings.totp_issuer
-        ttl_minutes = max(1, self.settings.password_reset_token_ttl_value // 60)
-        # ASCII subject only: non-ASCII punctuation can break some SMTP paths without SMTPUTF8.
-        subject = f"{app_name} - password reset"
-        body = (
-            f"Hello,\n\n"
-            f"We received a request to reset your password for {app_name}.\n\n"
-            "To restore your password, enter the following 6-digit code in the form:\n\n"
-            f"{code}\n\n"
-            f"This code expires in {ttl_minutes} minutes.\n\n"
-            "If you did not request a password reset, you can ignore this email.\n"
-        )
+        subject = "Password reset code"
+        body = f"Your 6-digit password reset code is: {code}\n"
         try:
             sent = await self.email_provider.send(
                 to_email=user.email,
@@ -149,6 +139,19 @@ class PasswordResetService:
             await session.rollback()
             LOGGER.exception(
                 "password_reset.email_send_failed",
+                extra={
+                    "user_id": str(user.id),
+                    "smtp_host": self.settings.smtp_host,
+                    "smtp_port": self.settings.smtp_port,
+                },
+            )
+            raise ServiceUnavailableException(
+                "Unable to send password reset email. Check SMTP settings or try again later."
+            ) from exc
+        except Exception as exc:
+            await session.rollback()
+            LOGGER.exception(
+                "password_reset.email_send_unexpected",
                 extra={
                     "user_id": str(user.id),
                     "smtp_host": self.settings.smtp_host,

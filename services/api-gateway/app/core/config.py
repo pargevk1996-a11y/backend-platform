@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     rate_limit_public_auth_per_minute: int = 30
     rate_limit_protected_per_minute: int = 120
 
+    refresh_cookie_name: str = Field(default="bp_rt", alias="REFRESH_COOKIE_NAME")
+    refresh_cookie_max_age_seconds: int = Field(default=2592000, alias="REFRESH_COOKIE_MAX_AGE_SECONDS")
+    refresh_cookie_secure: bool | None = Field(default=None, alias="REFRESH_COOKIE_SECURE")
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def _parse_origins(cls, value: str | list[str] | None) -> list[str]:
@@ -106,6 +110,12 @@ class Settings(BaseSettings):
     @property
     def privacy_key_pepper_value(self) -> str:
         return self.privacy_key_pepper.get_secret_value()
+
+    @property
+    def is_refresh_cookie_secure(self) -> bool:
+        if self.refresh_cookie_secure is not None:
+            return self.refresh_cookie_secure
+        return self.service_env != "development"
 
 
 @lru_cache(maxsize=1)

@@ -15,10 +15,19 @@ Base path: `/v1`
 - `POST /v1/auth/login/2fa`
 - `POST /v1/tokens/refresh`
 - `POST /v1/tokens/revoke`
+- `POST /v1/browser-auth/register`
+- `POST /v1/browser-auth/login`
+- `POST /v1/browser-auth/login/2fa`
+- `POST /v1/browser-auth/refresh`
+- `POST /v1/browser-auth/revoke` (sets/clears HttpOnly refresh cookie; JSON omits refresh material)
 - `GET /v1/health/live`
 - `GET /v1/health/ready`
 
 All other routes are treated as protected and require `Authorization: Bearer <access-token>`.
+
+### Browser BFF (`/v1/browser-auth/*`)
+
+Same upstream behavior as `/v1/auth/*` and `/v1/tokens/*`, but successful token responses **strip** `refresh_token` from JSON and place it in an **HttpOnly** cookie (name `bp_rt` by default, see `REFRESH_COOKIE_*` env vars). Machine clients should continue to call **`/v1/auth/*` and `/v1/tokens/*`** so refresh material stays in the response body.
 
 ## Health endpoints
 
