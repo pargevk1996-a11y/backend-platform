@@ -10,7 +10,7 @@ dependencies = [
   "asyncpg==0.30.0",
   "alembic==1.14.1",
   "pydantic==2.10.6",
-  "pydantic-settings==2.7.1",
+  "pydantic-settings==2.14.0",
   "pyjwt==2.12.1",
   "cryptography==46.0.7",
   "redis[hiredis]==5.2.1",
