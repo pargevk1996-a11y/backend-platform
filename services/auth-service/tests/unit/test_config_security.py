@@ -38,6 +38,18 @@ def test_production_rejects_hs_algorithm(monkeypatch: pytest.MonkeyPatch) -> Non
         Settings()
 
 
+def test_smtp_placeholder_password_not_used(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "mailer@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "PASTE_YOUR_GMAIL_APP_PASSWORD_HERE")
+
+    settings = Settings()
+
+    assert settings.smtp_password_value is None
+    assert not settings.smtp_is_configured
+
+
 def test_smtp_from_email_falls_back_to_username(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_required_env(monkeypatch)
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")

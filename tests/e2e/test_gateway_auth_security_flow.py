@@ -63,9 +63,19 @@ async def test_gateway_auth_security_flow() -> None:
             json={"email": email, "password": password},
         )
         assert register_response.status_code == 201, register_response.text
-        register_payload = register_response.json()
-        access_token = register_payload["access_token"]
-        initial_refresh = register_payload["refresh_token"]
+        assert register_response.json().get("status") == "created"
+
+        login_after_register = await client.post(
+            "/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert login_after_register.status_code == 200, login_after_register.text
+        login_initial = login_after_register.json()
+        assert login_initial.get("requires_2fa") is False
+        tokens = login_initial["tokens"]
+        assert tokens is not None
+        access_token = tokens["access_token"]
+        initial_refresh = tokens["refresh_token"]
 
         setup_response = await client.post(
             "/v1/two-factor/setup",
@@ -133,4 +143,4 @@ async def test_gateway_auth_security_flow() -> None:
         )
         assert post_revoke_refresh.status_code in {401, 409}, post_revoke_refresh.text
 
-        _ = initial_refresh
+        assert initial_refresh

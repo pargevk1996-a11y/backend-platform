@@ -41,6 +41,15 @@ def _normalize_smtp_secret(raw: str) -> str:
     return "".join(s.split())
 
 
+# Treat documented example env values as "no app password" (do not attempt SMTP login).
+_SMTP_PASSWORD_PLACEHOLDERS = frozenset(
+    {
+        "PASTE_YOUR_GMAIL_APP_PASSWORD_HERE",
+        "REPLACE_WITH_GMAIL_APP_PASSWORD",
+    }
+)
+
+
 def _normalize_smtp_identity_line(raw: str) -> str:
     line = raw.strip().splitlines()[0] if raw.strip() else ""
     return line.strip()
@@ -351,7 +360,11 @@ class Settings(BaseSettings):
         if self.smtp_password is None:
             return None
         normalized = _normalize_smtp_secret(self.smtp_password.get_secret_value())
-        return normalized or None
+        if not normalized:
+            return None
+        if normalized.upper() in {p.upper() for p in _SMTP_PASSWORD_PLACEHOLDERS}:
+            return None
+        return normalized
 
     @property
     def smtp_is_configured(self) -> bool:

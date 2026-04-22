@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.v1.browser_auth import router as browser_auth_router
 from app.api.v1.health import router as health_router
 from app.api.v1.proxy import router as proxy_router
 from app.core.config import get_settings
@@ -95,4 +96,5 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 app.include_router(health_router, prefix="/v1")
+app.include_router(browser_auth_router, prefix="/v1")
 app.include_router(proxy_router, prefix="/v1")
