@@ -1217,16 +1217,17 @@ async function restoreStoredSession() {
       if ([400, 401, 403].includes(st)) {
         if (isMissingRefreshCookieError(err)) {
           setStatus(
-            "No refresh cookie (session cannot resume after reload). Over HTTP with production-like gateway settings, set REFRESH_COOKIE_SECURE=false or use HTTPS — see README.",
+            "No refresh cookie (session cannot resume after reload). Sign in again, or check Gateway URL / TLS proxy (TRUSTED_PROXY_IPS + X-Forwarded-Proto) — see README.",
             true,
           );
           setResult(
             {
               message: "Missing refresh cookie after reload.",
-              typical_cause:
-                "Browsers ignore Set-Cookie with the Secure flag on plain http://. Default gateway behavior uses Secure when SERVICE_ENV is not development.",
-              remediation:
-                "Set REFRESH_COOKIE_SECURE=false in api-gateway env for HTTP demos, or terminate TLS and use https://.",
+              typical_causes: [
+                "Cookie was never set (sign-in failed, wrong origin, or browser blocked Set-Cookie).",
+                "HTTPS at a proxy: gateway must trust the proxy (TRUSTED_PROXY_IPS) so X-Forwarded-Proto=https is applied to the refresh cookie Secure flag.",
+                "Rare: force REFRESH_COOKIE_SECURE=false in api-gateway env if you must override auto behavior.",
+              ],
             },
             false,
           );

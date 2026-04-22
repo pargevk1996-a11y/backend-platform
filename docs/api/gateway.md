@@ -32,7 +32,8 @@ Same upstream behavior as `/v1/auth/*` and `/v1/tokens/*`, but successful token 
 #### Troubleshooting: `/ui` reload asks for sign-in again
 
 - The demo keeps the access JWT in memory only; reload uses **`POST /v1/browser-auth/refresh`** with the HttpOnly cookie.
-- If **`SERVICE_ENV`** is not `development`, the refresh cookie defaults to **`Secure`**. Browsers will not store or send it on **`http://`** — set **`REFRESH_COOKIE_SECURE=false`** on the gateway for plain-HTTP demos, or use HTTPS.
+- **`Secure` on the refresh cookie** is chosen per request: **on** for HTTPS (or **`X-Forwarded-Proto: https`** from **`TRUSTED_PROXY_IPS`**), **off** for plain HTTP to the gateway — so HTTP and HTTPS can both work without toggling env. Set **`REFRESH_COOKIE_SECURE=true|false`** only to force behavior.
+- If TLS terminates at a proxy, ensure **`TRUSTED_PROXY_IPS`** includes that proxy so **`X-Forwarded-Proto`** is trusted.
 - The **Gateway URL** field must match the page **origin** (scheme + host + port); otherwise the demo disables the same-origin cookie flow.
 
 ## Health endpoints

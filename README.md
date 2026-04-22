@@ -246,7 +246,7 @@ make migrate-user
 
 ## EC2 and production deploy
 
-- **Browser `/ui` over HTTP:** If you open the gateway with `http://` while `SERVICE_ENV` is **staging** or **production**, set **`REFRESH_COOKIE_SECURE=false`** in `services/api-gateway/.env` unless you terminate **HTTPS** in front of the gateway. Otherwise the HttpOnly refresh cookie is not stored and the console asks you to sign in again after every full page reload.
+- **Browser `/ui` HTTP and HTTPS:** The gateway sets the refresh cookie **`Secure` only when the browser-facing request is HTTPS** (direct TLS to the gateway, or **`X-Forwarded-Proto: https`** from an address in **`TRUSTED_PROXY_IPS`**, e.g. an ALB or reverse proxy). Plain `http://` still gets a working cookie without manual `REFRESH_COOKIE_SECURE=false`. Override only if needed: **`REFRESH_COOKIE_SECURE=true|false`** in `services/api-gateway/.env`.
 - **Stack file:** `infra/compose/docker-compose.prod.yml` + `infra/compose/.env.compose`
 - **Update in place** (on the server, from clone root):
 

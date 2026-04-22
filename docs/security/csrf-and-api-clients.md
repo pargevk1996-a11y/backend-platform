@@ -12,7 +12,7 @@ The gateway lists `X-CSRF-Token` in CORS allowed headers for future use; there i
 
 The static demo under the gateway may use **HttpOnly** cookies for the **refresh** token (issued by `POST /v1/browser-auth/*` on the gateway). Those endpoints are intended for **same-origin** use only (CORS with credentials is still subject to an explicit origin allowlist in staging/production).
 
-- **Refresh cookie**: `HttpOnly`, `SameSite=Lax`, `Secure` outside `development` (override with `REFRESH_COOKIE_SECURE` if needed).
+- **Refresh cookie**: `HttpOnly`, `SameSite=Lax`; **`Secure` when the client connection is HTTPS** (or `X-Forwarded-Proto: https` from **`TRUSTED_PROXY_IPS`**). Optional env **`REFRESH_COOKIE_SECURE`** forces on/off for all requests.
 - **Access token**: short-lived JWT. For the same-origin flow, the demo keeps it **only in JavaScript memory** (`state`), **not** in `localStorage` or `sessionStorage`, so a full page reload relies on **silent refresh** via the HttpOnly cookie (`POST /v1/browser-auth/refresh`). Any **XSS in the page can still steal the access token from memory** while the tab is open — that residual risk requires strict CSP, subresource integrity, and avoidance of `unsafe-inline` scripts (see gateway `SecurityHeadersMiddleware` for `/ui`).
 - **Cross-origin Gateway URL**: if the user points “Gateway URL” at another origin, the UI **blocks** account actions and shows a banner — storing refresh/access pairs in `localStorage` for arbitrary API hosts is not supported.
 

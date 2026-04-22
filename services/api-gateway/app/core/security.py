@@ -92,6 +92,29 @@ def _is_trusted_proxy(client_host: str | None, trusted_proxy_ips: list[str] | No
     return False
 
 
+def effective_refresh_cookie_secure(request: Request, settings: Settings) -> bool:
+    """Set-Cookie ``Secure`` for the browser BFF refresh cookie.
+
+    - If ``REFRESH_COOKIE_SECURE`` is set in env, that value wins (force on/off).
+    - Otherwise: ``Secure`` only when the browser-facing connection is HTTPS
+      (direct ``request.url.scheme`` or, behind a **trusted** proxy,
+      ``X-Forwarded-Proto: https``). Plain HTTP gets no ``Secure`` so the cookie
+      is stored; TLS frontends still get ``Secure``.
+    """
+    if settings.refresh_cookie_secure is not None:
+        return settings.refresh_cookie_secure
+    if (request.url.scheme or "").lower() == "https":
+        return True
+    client_host = request.client.host if request.client and request.client.host else None
+    if not _is_trusted_proxy(client_host, settings.trusted_proxy_ips):
+        return False
+    proto_raw = (request.headers.get("x-forwarded-proto") or "").strip()
+    if not proto_raw:
+        return False
+    first = proto_raw.split(",", maxsplit=1)[0].strip().lower()
+    return first == "https"
+
+
 def get_client_ip(request: Request, trusted_proxy_ips: list[str] | None = None) -> str:
     client_host = request.client.host if request.client and request.client.host else None
     xff = request.headers.get("x-forwarded-for")
