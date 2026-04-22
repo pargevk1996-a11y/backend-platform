@@ -9,7 +9,7 @@ dependencies = [
   "sqlalchemy==2.0.39",
   "asyncpg==0.30.0",
   "alembic==1.14.1",
-  "pydantic==2.10.6",
+  "pydantic==2.13.3",
   "pydantic-settings==2.7.1",
   "pyjwt==2.12.1",
   "cryptography==46.0.7",
