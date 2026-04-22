@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from app.api.deps import get_rate_limiter, get_routing_service, get_settings_dep
 from app.core.config import Settings
 from app.core.rate_limit import RateLimiter
-from app.core.security import get_client_ip
+from app.core.security import effective_refresh_cookie_secure, get_client_ip
 from app.services.routing_service import RoutingService
 
 LOGGER = logging.getLogger(__name__)
@@ -51,24 +51,32 @@ def _strip_refresh_from_json(data: dict[str, Any]) -> tuple[dict[str, Any], str 
     return out, refresh
 
 
-def _set_refresh_cookie(response: Response, *, settings: Settings, refresh_token: str) -> None:
+def _set_refresh_cookie(
+    request: Request,
+    response: Response,
+    *,
+    settings: Settings,
+    refresh_token: str,
+) -> None:
+    secure = effective_refresh_cookie_secure(request, settings)
     response.set_cookie(
         key=settings.refresh_cookie_name,
         value=refresh_token,
         max_age=settings.refresh_cookie_max_age_seconds,
         path="/",
         httponly=True,
-        secure=settings.is_refresh_cookie_secure,
+        secure=secure,
         samesite="lax",
     )
 
 
-def _clear_refresh_cookie(response: Response, *, settings: Settings) -> None:
+def _clear_refresh_cookie(request: Request, response: Response, *, settings: Settings) -> None:
+    secure = effective_refresh_cookie_secure(request, settings)
     response.delete_cookie(
         settings.refresh_cookie_name,
         path="/",
         samesite="lax",
-        secure=settings.is_refresh_cookie_secure,
+        secure=secure,
     )
 
 
@@ -127,9 +135,9 @@ async def _forward_json(
             media_type="application/json",
         )
         if set_cookie_on_ok and refresh_val:
-            _set_refresh_cookie(response, settings=settings, refresh_token=refresh_val)
+            _set_refresh_cookie(request, response, settings=settings, refresh_token=refresh_val)
         if clear_cookie_on_ok and proxied.status_code < 400:
-            _clear_refresh_cookie(response, settings=settings)
+            _clear_refresh_cookie(request, response, settings=settings)
         return response
 
     return Response(

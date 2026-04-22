@@ -111,12 +111,6 @@ class Settings(BaseSettings):
     def privacy_key_pepper_value(self) -> str:
         return self.privacy_key_pepper.get_secret_value()
 
-    @property
-    def is_refresh_cookie_secure(self) -> bool:
-        if self.refresh_cookie_secure is not None:
-            return self.refresh_cookie_secure
-        return self.service_env != "development"
-
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

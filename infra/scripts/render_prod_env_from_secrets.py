@@ -285,31 +285,34 @@ def main() -> None:
         ]
     )
 
-    gateway_env = "\n".join(
-        [
-            "SERVICE_NAME=api-gateway",
-            "SERVICE_ENV=production",
-            "SERVICE_PORT=8000",
-            f"CORS_ALLOWED_ORIGINS={cors}",
-            "",
-            f"REDIS_URL=redis://:{redis_pw_q}@redis:6379/2",
-            "AUTH_SERVICE_URL=http://auth-service:8001",
-            "USER_SERVICE_URL=http://user-service:8002",
-            "NOTIFICATION_SERVICE_URL=",
-            "",
-            "JWT_ALGORITHM=RS256",
-            "JWT_ISSUER=backend-platform",
-            "JWT_AUDIENCE=backend-clients",
-            f'JWT_PUBLIC_KEY="{_escape_pem(pub_pem)}"',
-            f"PRIVACY_KEY_PEPPER={privacy_pepper}",
-            "",
-            "UPSTREAM_TIMEOUT_SECONDS=10",
-            "TRUSTED_PROXY_IPS=172.16.0.0/12",
-            "RATE_LIMIT_PUBLIC_AUTH_PER_MINUTE=30",
-            "RATE_LIMIT_PROTECTED_PER_MINUTE=120",
-            "",
-        ]
-    )
+    gateway_lines = [
+        "SERVICE_NAME=api-gateway",
+        "SERVICE_ENV=production",
+        "SERVICE_PORT=8000",
+        f"CORS_ALLOWED_ORIGINS={cors}",
+        "",
+        f"REDIS_URL=redis://:{redis_pw_q}@redis:6379/2",
+        "AUTH_SERVICE_URL=http://auth-service:8001",
+        "USER_SERVICE_URL=http://user-service:8002",
+        "NOTIFICATION_SERVICE_URL=",
+        "",
+        "JWT_ALGORITHM=RS256",
+        "JWT_ISSUER=backend-platform",
+        "JWT_AUDIENCE=backend-clients",
+        f'JWT_PUBLIC_KEY="{_escape_pem(pub_pem)}"',
+        f"PRIVACY_KEY_PEPPER={privacy_pepper}",
+        "",
+        "UPSTREAM_TIMEOUT_SECONDS=10",
+        "TRUSTED_PROXY_IPS=172.16.0.0/12",
+        "RATE_LIMIT_PUBLIC_AUTH_PER_MINUTE=30",
+        "RATE_LIMIT_PROTECTED_PER_MINUTE=120",
+        "",
+    ]
+    refresh_secure = _compose_get(compose, "REFRESH_COOKIE_SECURE")
+    if refresh_secure:
+        gateway_lines.append(f"REFRESH_COOKIE_SECURE={refresh_secure}")
+        gateway_lines.append("")
+    gateway_env = "\n".join(gateway_lines)
 
     (root / "services" / "auth-service" / ".env").write_text(auth_env, encoding="utf-8")
     (root / "services" / "user-service" / ".env").write_text(user_env, encoding="utf-8")
