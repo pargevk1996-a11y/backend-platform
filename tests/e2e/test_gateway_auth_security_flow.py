@@ -63,9 +63,19 @@ async def test_gateway_auth_security_flow() -> None:
             json={"email": email, "password": password},
         )
         assert register_response.status_code == 201, register_response.text
-        register_payload = register_response.json()
-        access_token = register_payload["access_token"]
-        initial_refresh = register_payload["refresh_token"]
+        assert register_response.json().get("status") == "created"
+
+        login_after_register = await client.post(
+            "/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert login_after_register.status_code == 200, login_after_register.text
+        login_initial = login_after_register.json()
+        assert login_initial.get("requires_2fa") is False
+        tokens = login_initial["tokens"]
+        assert tokens is not None
+        access_token = tokens["access_token"]
+        initial_refresh = tokens["refresh_token"]
 
         setup_response = await client.post(
             "/v1/two-factor/setup",
@@ -75,6 +85,8 @@ async def test_gateway_auth_security_flow() -> None:
         setup_payload = setup_response.json()
         assert "secret" not in setup_payload
         assert "provisioning_uri" not in setup_payload
+        setup_backup = setup_payload["backup_codes"]
+        assert isinstance(setup_backup, list) and len(setup_backup) == 10
         totp = _totp_from_setup_qr(setup_payload["qr_png_base64"])
         current_code = totp.at(for_time=datetime.now(UTC))
         enable_response = await client.post(
@@ -83,8 +95,7 @@ async def test_gateway_auth_security_flow() -> None:
             json={"totp_code": current_code},
         )
         assert enable_response.status_code == 200, enable_response.text
-        backup_codes = enable_response.json()["backup_codes"]
-        assert isinstance(backup_codes, list) and len(backup_codes) == 10
+        assert enable_response.json().get("backup_codes") == []
 
         login_response = await client.post(
             "/v1/auth/login",
@@ -132,4 +143,4 @@ async def test_gateway_auth_security_flow() -> None:
         )
         assert post_revoke_refresh.status_code in {401, 409}, post_revoke_refresh.text
 
-        _ = initial_refresh
+        assert initial_refresh

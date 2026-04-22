@@ -28,6 +28,10 @@ def _configure_test_env() -> None:
     os.environ["PRIVACY_KEY_PEPPER"] = "test-privacy-pepper-very-long-secret-value"
     os.environ["PASSWORD_RESET_TOKEN_PEPPER"] = "test-reset-pepper-very-long-secret-value"
     os.environ["TOTP_ENCRYPTION_KEY"] = Fernet.generate_key().decode("utf-8")
+    # So password-reset request path treats SMTP as configured (tests use FakeEmailProvider).
+    os.environ.setdefault("SMTP_HOST", "localhost")
+    os.environ.setdefault("SMTP_FROM_EMAIL", "auth-tests@example.com")
+    os.environ.setdefault("SMTP_PASSWORD", "sixteen-char-appwd")
 
     from app.core.config import get_settings
 

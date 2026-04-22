@@ -16,6 +16,7 @@ from app.schemas.auth import (
     PasswordResetRequest,
     PasswordResetResponse,
     RegisterRequest,
+    RegisterResponse,
 )
 from app.schemas.token import TokenPairResponse
 from app.services.auth_service import AuthService
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post(
     "/register",
-    response_model=TokenPairResponse,
+    response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[
         Depends(rate_limit_dependency("register", settings.rate_limit_register_per_minute))
@@ -38,19 +39,15 @@ async def register(
     request: Request,
     session: AsyncSession = Depends(get_session),
     auth_service: AuthService = Depends(get_auth_service),
-) -> TokenPairResponse:
-    token_pair = await auth_service.register(
+) -> RegisterResponse:
+    await auth_service.register(
         session,
         email=payload.email,
         password=payload.password,
         ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
-    return TokenPairResponse(
-        access_token=token_pair.access_token,
-        refresh_token=token_pair.refresh_token,
-        expires_in=token_pair.access_expires_in,
-    )
+    return RegisterResponse()
 
 
 @router.post(
@@ -130,13 +127,13 @@ async def request_password_reset(
     session: AsyncSession = Depends(get_session),
     reset_service: PasswordResetService = Depends(get_password_reset_service),
 ) -> PasswordResetResponse:
-    await reset_service.request_reset(
+    result = await reset_service.request_reset(
         session,
         email=payload.email,
         ip_address=get_client_ip(request, trusted_proxy_ips=settings.trusted_proxy_ips),
         user_agent=request.headers.get("user-agent"),
     )
-    return PasswordResetResponse()
+    return PasswordResetResponse(email_sent=result.email_sent)
 
 
 @router.post(

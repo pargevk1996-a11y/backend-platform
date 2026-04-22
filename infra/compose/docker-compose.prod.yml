@@ -58,13 +58,23 @@ services:
       dockerfile: infra/docker/auth-service.Dockerfile
     container_name: auth-service
     restart: unless-stopped
+    # SMTP_*, SUPPORT_EMAIL, LOGIN_MAX_FAILED_ATTEMPTS, RESET_CODE_MAX_FAILED_ATTEMPTS: set in
+    # ../../services/auth-service/.env (merged into the container with the overrides below).
     env_file:
       - ../../services/auth-service/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://auth_service:${AUTH_DB_PASSWORD}@postgres-auth:5432/auth_service
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # DATABASE_URL / REDIS_URL: only from env_file (see infra/scripts/render_prod_env_from_secrets.py)
+      # so passwords match and URL-encoding stays consistent. Keep DB password in sync with postgres-auth
+      # via AUTH_DB_PASSWORD in infra/compose/.env.compose; if you change it, reset the postgres volume
+      # or ALTER ROLE auth_service PASSWORD inside the DB.
       SERVICE_ENV: production
       TRUSTED_PROXY_IPS: 172.16.0.0/12
+      # Optional: load app password from mount when SMTP_PASSWORD is empty in ../../services/auth-service/.env.
+      SMTP_PASSWORD_FILE: /app/secrets/smtp_app_password.txt
+      # Default true so auth-service starts when secrets are incomplete; set AUTH_ALLOW_MISSING_SMTP=false in .env.compose when mail is fully wired.
+      AUTH_ALLOW_MISSING_SMTP: ${AUTH_ALLOW_MISSING_SMTP:-true}
+    volumes:
+      - ../../secrets:/app/secrets:ro
     depends_on:
       postgres-auth:
         condition: service_healthy
@@ -88,8 +98,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # backend is internal-only; outbound SMTP needs DNS + TCP egress (e.g. port 587).
     networks:
       - backend
+      - edge
 
   user-service:
     build:
@@ -100,8 +112,6 @@ services:
     env_file:
       - ../../services/user-service/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://user_service:${USER_DB_PASSWORD}@postgres-user:5432/user_service
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       SERVICE_ENV: production
       TRUSTED_PROXY_IPS: 172.16.0.0/12
     depends_on:
@@ -139,7 +149,6 @@ services:
     env_file:
       - ../../services/api-gateway/.env
     environment:
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       AUTH_SERVICE_URL: http://auth-service:8001
       USER_SERVICE_URL: http://user-service:8002
       SERVICE_ENV: production

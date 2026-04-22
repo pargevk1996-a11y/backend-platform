@@ -85,7 +85,7 @@ async def test_email_provider_uses_starttls_for_tls_non_ssl_port(
         def ehlo(self) -> None:
             return None
 
-        def starttls(self) -> None:
+        def starttls(self, context=None) -> None:
             self.starttls_called = True
 
         def login(self, username: str, password: str) -> None:
@@ -175,6 +175,21 @@ async def test_email_provider_uses_smtp_ssl_for_implicit_tls_port(
             "to": "user@example.com",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_email_provider_require_delivery_raises_without_password() -> None:
+    provider = EmailProvider(
+        host="smtp.example.com",
+        port=587,
+        username="a@example.com",
+        password=None,
+        use_tls=True,
+        from_email="a@example.com",
+        require_delivery=True,
+    )
+    with pytest.raises(RuntimeError, match="not configured"):
+        await provider.send(to_email="u@example.com", subject="S", body="B")
 
 
 @pytest.mark.asyncio

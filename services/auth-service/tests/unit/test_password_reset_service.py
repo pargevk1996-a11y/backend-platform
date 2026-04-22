@@ -6,7 +6,12 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.core.config import get_settings
-from app.exceptions.auth import BadRequestException
+from app.exceptions.auth import (
+    BadRequestException,
+    PasswordResetFlowBlockedException,
+    ServiceUnavailableException,
+    UnknownUserPasswordResetException,
+)
 from app.services.password_reset_service import PasswordResetService
 
 
@@ -15,6 +20,8 @@ class FakeUser:
     id: UUID
     email: str
     password_hash: str = "old-hash"
+    password_reset_blocked: bool = False
+    login_blocked: bool = False
 
 
 @dataclass
@@ -28,9 +35,17 @@ class FakeResetRecord:
 class FakeSession:
     def __init__(self) -> None:
         self.commit_calls = 0
+        self.rollback_calls = 0
+        self.flush_calls = 0
 
     async def commit(self) -> None:
         self.commit_calls += 1
+
+    async def rollback(self) -> None:
+        self.rollback_calls += 1
+
+    async def flush(self) -> None:
+        self.flush_calls += 1
 
 
 class FakeUserRepository:
@@ -125,8 +140,9 @@ class FakeEmailProvider:
     def __init__(self) -> None:
         self.messages: list[dict[str, str]] = []
 
-    async def send(self, *, to_email: str, subject: str, body: str) -> None:
+    async def send(self, *, to_email: str, subject: str, body: str) -> bool:
         self.messages.append({"to_email": to_email, "subject": subject, "body": body})
+        return True
 
 
 class FakeAuditService:
@@ -138,12 +154,16 @@ class FakeBruteForceService:
     def __init__(self) -> None:
         self.failures: list[tuple[str, str]] = []
         self.cleared: list[tuple[str, str]] = []
+        self._counts: dict[tuple[str, str], int] = {}
 
     async def assert_not_locked(self, *, scope: str, identifier: str) -> None:
         _ = (scope, identifier)
 
-    async def record_failure(self, *, scope: str, identifier: str) -> None:
+    async def record_failure(self, *, scope: str, identifier: str) -> int:
         self.failures.append((scope, identifier))
+        key = (scope, identifier)
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key]
 
     async def clear_failures(self, *, scope: str, identifier: str) -> None:
         self.cleared.append((scope, identifier))
@@ -177,6 +197,42 @@ def _build_service(user: FakeUser | None):
         email_provider,
         brute_force_service,
     )
+
+
+@pytest.mark.asyncio
+async def test_request_reset_unknown_user_raises() -> None:
+    service, *_rest = _build_service(user=None)
+    sess = FakeSession()
+    with pytest.raises(UnknownUserPasswordResetException) as exc_info:
+        await service.request_reset(
+            sess,
+            email="nobody@example.com",
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )
+    assert "No user is registered with this email address." in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_request_reset_email_failure_returns_service_unavailable() -> None:
+    class BoomEmail(FakeEmailProvider):
+        async def send(self, *, to_email: str, subject: str, body: str) -> None:
+            _ = (to_email, subject, body)
+            raise OSError("smtp down")
+
+    user = FakeUser(id=uuid4(), email="user@example.com")
+    service, *_rest = _build_service(user)
+    service.email_provider = BoomEmail()
+
+    sess = FakeSession()
+    with pytest.raises(ServiceUnavailableException):
+        await service.request_reset(
+            sess,
+            email=user.email,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )
+    assert sess.rollback_calls == 1
 
 
 @pytest.mark.asyncio
@@ -273,3 +329,100 @@ async def test_reset_password_records_failures_and_clears_on_success() -> None:
         ("password_reset", "user@example.com:127.0.0.1"),
         ("password_reset_account", "user@example.com"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_request_reset_raises_when_password_reset_blocked() -> None:
+    user = FakeUser(id=uuid4(), email="blocked@example.com", password_reset_blocked=True)
+    service, *_ = _build_service(user)
+    with pytest.raises(PasswordResetFlowBlockedException):
+        await service.request_reset(
+            FakeSession(),
+            email=user.email,
+            ip_address=None,
+            user_agent=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_reset_password_raises_when_password_reset_blocked() -> None:
+    user = FakeUser(id=uuid4(), email="blocked2@example.com", password_reset_blocked=True)
+    service, *_ = _build_service(user)
+    with pytest.raises(PasswordResetFlowBlockedException):
+        await service.reset_password(
+            FakeSession(),
+            email=user.email,
+            code="123456",
+            new_password="NewPassw0rd!",
+            ip_address=None,
+            user_agent=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_three_wrong_reset_codes_persist_password_reset_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRUTE_FORCE_PASSWORD_RESET_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("RESET_CODE_MAX_FAILED_ATTEMPTS", "3")
+    get_settings.cache_clear()
+    user = FakeUser(id=uuid4(), email="user@example.com")
+    service, *_rest = _build_service(user)
+    session = FakeSession()
+
+    for _ in range(3):
+        with pytest.raises(BadRequestException):
+            await service.reset_password(
+                session,
+                email=user.email,
+                code="000000",
+                new_password="NewPassw0rd!",
+                ip_address="127.0.0.1",
+                user_agent="pytest",
+            )
+
+    assert user.password_reset_blocked is True
+    assert session.commit_calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_request_reset_unconfigured_smtp_allow_missing_no_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMTP_HOST", "")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("AUTH_ALLOW_MISSING_SMTP", "true")
+    get_settings.cache_clear()
+    user = FakeUser(id=uuid4(), email="nomail@example.com")
+    service, reset_repository, *_rest = _build_service(user)
+    result = await service.request_reset(
+        FakeSession(),
+        email=user.email,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+    )
+    assert result.email_sent is False
+    assert reset_repository.records == []
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_request_reset_unconfigured_smtp_strict_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMTP_HOST", "")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("AUTH_ALLOW_MISSING_SMTP", "false")
+    get_settings.cache_clear()
+    user = FakeUser(id=uuid4(), email="strict@example.com")
+    service, *_rest = _build_service(user)
+    with pytest.raises(ServiceUnavailableException):
+        await service.request_reset(
+            FakeSession(),
+            email=user.email,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+        )
+    get_settings.cache_clear()

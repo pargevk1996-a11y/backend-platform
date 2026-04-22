@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated, Literal
+from pathlib import Path
+from typing import Annotated, Literal, Self
 
 from cryptography.fernet import Fernet
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
@@ -20,12 +21,45 @@ ALLOWED_JWT_ALGORITHMS = {
 }
 MIN_SECRET_LENGTH = 32
 
+# config.py lives at services/auth-service/app/core/config.py
+_SETTINGS_FILE = Path(__file__).resolve()
+_AUTH_SERVICE_ROOT = _SETTINGS_FILE.parents[2]
+_AUTH_ENV_FILE = _AUTH_SERVICE_ROOT / ".env"
+# Repo root (backend-platform): parents[4]
+_REPO_ROOT = _SETTINGS_FILE.parents[4]
+# Gmail App Password (canonical name); legacy alias: smtp_password.txt
+_DEFAULT_SMTP_APP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_app_password.txt"
+_LEGACY_SMTP_PASSWORD_FILE = _REPO_ROOT / "secrets" / "smtp_password.txt"
+_SMTP_IDENTITY_FILE = _REPO_ROOT / "secrets" / "smtp_identity_email.txt"
+
+
+def _normalize_smtp_secret(raw: str) -> str:
+    """Strip and remove whitespace (Gmail app passwords are 16 chars without spaces)."""
+    s = raw.strip()
+    if not s:
+        return ""
+    return "".join(s.split())
+
+
+# Treat documented example env values as "no app password" (do not attempt SMTP login).
+_SMTP_PASSWORD_PLACEHOLDERS = frozenset(
+    {
+        "PASTE_YOUR_GMAIL_APP_PASSWORD_HERE",
+        "REPLACE_WITH_GMAIL_APP_PASSWORD",
+    }
+)
+
+
+def _normalize_smtp_identity_line(raw: str) -> str:
+    line = raw.strip().splitlines()[0] if raw.strip() else ""
+    return line.strip()
+
 
 class Settings(BaseSettings):
-    """Application settings loaded from service-specific .env."""
+    """Application settings: always load ``services/auth-service/.env`` (not CWD-relative)."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_AUTH_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -68,7 +102,14 @@ class Settings(BaseSettings):
     rate_limit_register_per_minute: int = 5
     rate_limit_password_reset_per_minute: int = 5
 
-    brute_force_login_max_attempts: int = 5
+    brute_force_login_max_attempts: int = Field(
+        default=3,
+        validation_alias=AliasChoices(
+            "BRUTE_FORCE_LOGIN_MAX_ATTEMPTS",
+            "LOGIN_MAX_FAILED_ATTEMPTS",
+            "brute_force_login_max_attempts",
+        ),
+    )
     brute_force_login_window_seconds: int = 300
     brute_force_login_lock_seconds: int = 900
 
@@ -76,7 +117,14 @@ class Settings(BaseSettings):
     brute_force_2fa_window_seconds: int = 300
     brute_force_2fa_lock_seconds: int = 900
 
-    brute_force_password_reset_max_attempts: int = 5
+    brute_force_password_reset_max_attempts: int = Field(
+        default=3,
+        validation_alias=AliasChoices(
+            "BRUTE_FORCE_PASSWORD_RESET_MAX_ATTEMPTS",
+            "RESET_CODE_MAX_FAILED_ATTEMPTS",
+            "brute_force_password_reset_max_attempts",
+        ),
+    )
     brute_force_password_reset_window_seconds: int = 300
     brute_force_password_reset_lock_seconds: int = 900
 
@@ -96,6 +144,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("SMTP_PASSWORD", "smtp_password"),
     )
+    smtp_password_file: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_PASSWORD_FILE", "smtp_password_file"),
+    )
     smtp_require_delivery: bool | None = Field(
         default=None,
         validation_alias=AliasChoices("SMTP_REQUIRE_DELIVERY", "smtp_require_delivery"),
@@ -107,6 +159,18 @@ class Settings(BaseSettings):
     smtp_from_email: str | None = Field(
         default=None,
         validation_alias=AliasChoices("SMTP_FROM_EMAIL", "smtp_from_email"),
+    )
+    smtp_from_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMTP_FROM_NAME", "smtp_from_name"),
+    )
+    auth_allow_missing_smtp: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("AUTH_ALLOW_MISSING_SMTP", "auth_allow_missing_smtp"),
+    )
+    support_email: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SUPPORT_EMAIL", "support_email"),
     )
 
     argon2_time_cost: int = 3
@@ -162,6 +226,78 @@ class Settings(BaseSettings):
             raise ValueError("TOTP_ENCRYPTION_KEY must be a valid Fernet key") from exc
         return value
 
+    @field_validator(
+        "smtp_host",
+        "smtp_username",
+        "smtp_from_email",
+        "smtp_from_name",
+        "support_email",
+        mode="before",
+    )
+    @classmethod
+    def _blank_smtp_strings_to_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _load_smtp_password_from_file(self) -> Self:
+        """Fill SMTP password from env SMTP_PASSWORD_FILE or secrets/*.txt candidates."""
+        if self.smtp_password is not None:
+            if _normalize_smtp_secret(self.smtp_password.get_secret_value()):
+                return self
+
+        explicit = (self.smtp_password_file or "").strip()
+        candidates: list[Path] = []
+        if explicit:
+            candidates.append(Path(explicit))
+        candidates.extend(
+            [
+                _DEFAULT_SMTP_APP_PASSWORD_FILE,
+                _LEGACY_SMTP_PASSWORD_FILE,
+            ]
+        )
+
+        seen: set[str] = set()
+        for path in candidates:
+            try:
+                key = str(path.resolve())
+            except OSError:
+                key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                if not path.is_file():
+                    continue
+            except OSError:
+                continue
+            try:
+                raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            if raw:
+                self.smtp_password = SecretStr(raw)
+                return self
+
+        return self
+
+    @model_validator(mode="after")
+    def _apply_smtp_ec2_defaults(self) -> Self:
+        """Fill host/mailbox from repo secrets when env is incomplete (typical on EC2)."""
+        id_raw = ""
+        try:
+            # Avoid is_file(); use read_text (handles missing file and some perm issues).
+            id_raw = _SMTP_IDENTITY_FILE.read_text(encoding="utf-8")
+        except OSError:
+            pass
+        ident = _normalize_smtp_identity_line(id_raw)
+        if ident and not self.smtp_username and not self.smtp_from_email:
+            self.smtp_username = ident
+            self.smtp_from_email = ident
+
+        return self
+
     @model_validator(mode="after")
     def _validate_deployed_security(self) -> Settings:
         if self.service_env not in {"staging", "production"}:
@@ -179,8 +315,11 @@ class Settings(BaseSettings):
         public_key = self.jwt_public_key_value
         if "BEGIN" not in private_key or "BEGIN" not in public_key:
             raise ValueError("Deployed asymmetric JWT keys must be PEM-formatted")
-        if not self.smtp_is_configured:
-            raise ValueError("Staging and production require configured SMTP delivery")
+        if not self.smtp_is_configured and not self.auth_allow_missing_smtp:
+            raise ValueError(
+                "Staging and production require configured SMTP delivery "
+                "(set AUTH_ALLOW_MISSING_SMTP=true when outbound email is intentionally disabled)"
+            )
 
         return self
 
@@ -220,11 +359,17 @@ class Settings(BaseSettings):
     def smtp_password_value(self) -> str | None:
         if self.smtp_password is None:
             return None
-        return self.smtp_password.get_secret_value()
+        normalized = _normalize_smtp_secret(self.smtp_password.get_secret_value())
+        if not normalized:
+            return None
+        if normalized.upper() in {p.upper() for p in _SMTP_PASSWORD_PLACEHOLDERS}:
+            return None
+        return normalized
 
     @property
     def smtp_is_configured(self) -> bool:
-        return bool(self.smtp_host and self.smtp_from_email_value)
+        """Host, From (or username), and app password are required for real SMTP delivery."""
+        return bool(self.smtp_host and self.smtp_from_email_value and self.smtp_password_value)
 
     @property
     def smtp_require_delivery_value(self) -> bool:
@@ -239,6 +384,27 @@ class Settings(BaseSettings):
             ]
         )
         return self.service_env != "development" or smtp_partially_configured
+
+    @property
+    def support_contact_sentence(self) -> str:
+        if self.support_email:
+            return f"If you need assistance, email {self.support_email}."
+        return "If you need assistance, contact your platform administrator."
+
+    @property
+    def account_login_locked_message(self) -> str:
+        return (
+            "Too many failed sign-in attempts. Password sign-in is blocked for this account. "
+            "Use password reset with your email to regain access. "
+            + self.support_contact_sentence
+        )
+
+    @property
+    def password_reset_flow_blocked_message(self) -> str:
+        return (
+            "Self-service password reset is not available for this account for security reasons. "
+            + self.support_contact_sentence
+        )
 
 
 @lru_cache(maxsize=1)

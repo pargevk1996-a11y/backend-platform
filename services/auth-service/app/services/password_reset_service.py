@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -8,12 +9,19 @@ from secrets import randbelow
 from uuid import UUID
 
 from redis.asyncio import Redis
+from smtplib import SMTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.constants import AUDIT_PASSWORD_RESET_COMPLETED, AUDIT_PASSWORD_RESET_REQUESTED
 from app.core.privacy import normalize_optional
-from app.exceptions.auth import BadRequestException
+from app.exceptions.auth import (
+    BadRequestException,
+    PasswordResetFlowBlockedException,
+    ServiceUnavailableException,
+    UnknownUserPasswordResetException,
+)
+from app.models.user import User
 from app.integrations.email.provider import EmailProvider
 from app.integrations.redis.keys import access_session_revoked_key
 from app.repositories.password_reset_repository import PasswordResetRepository
@@ -23,6 +31,8 @@ from app.services.audit_service import AuditService
 from app.services.brute_force_protection_service import BruteForceProtectionService
 from app.services.password_service import PasswordService
 from app.services.session_service import SessionService
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -82,7 +92,16 @@ class PasswordResetService:
         normalized_email = email.lower()
         user = await self.user_repository.get_by_email(session, normalized_email)
         if user is None:
-            return PasswordResetRequestResult(email_sent=False)
+            raise UnknownUserPasswordResetException()
+        if user.password_reset_blocked:
+            raise PasswordResetFlowBlockedException(self.settings.password_reset_flow_blocked_message)
+
+        if not self.settings.smtp_is_configured:
+            if self.settings.auth_allow_missing_smtp:
+                return PasswordResetRequestResult(email_sent=False)
+            raise ServiceUnavailableException(
+                "Password reset email is not configured. Contact the administrator."
+            )
 
         code = self._generate_code()
         token_hash = self._hash_token(code)
@@ -103,23 +122,45 @@ class PasswordResetService:
             requested_user_agent=normalize_optional(user_agent),
         )
 
-        app_name = self.settings.totp_issuer
-        ttl_minutes = max(1, self.settings.password_reset_token_ttl_value // 60)
-        # ASCII subject only: non-ASCII punctuation can break some SMTP paths without SMTPUTF8.
-        subject = f"{app_name} - password reset"
-        body = (
-            f"Hello,\n\n"
-            f"We received a request to reset your password for {app_name}.\n\n"
-            "To restore your password, enter the following 6-digit code in the form:\n\n"
-            f"{code}\n\n"
-            f"This code expires in {ttl_minutes} minutes.\n\n"
-            "If you did not request a password reset, you can ignore this email.\n"
-        )
-        await self.email_provider.send(
-            to_email=user.email,
-            subject=subject,
-            body=body,
-        )
+        subject = "Password reset code"
+        body = f"Your 6-digit password reset code is: {code}\n"
+        try:
+            sent = await self.email_provider.send(
+                to_email=user.email,
+                subject=subject,
+                body=body,
+            )
+            if sent is not True:
+                await session.rollback()
+                raise ServiceUnavailableException(
+                    "Unable to send password reset email. Check SMTP settings or try again later."
+                )
+        except (SMTPException, OSError, RuntimeError) as exc:
+            await session.rollback()
+            LOGGER.exception(
+                "password_reset.email_send_failed",
+                extra={
+                    "user_id": str(user.id),
+                    "smtp_host": self.settings.smtp_host,
+                    "smtp_port": self.settings.smtp_port,
+                },
+            )
+            raise ServiceUnavailableException(
+                "Unable to send password reset email. Check SMTP settings or try again later."
+            ) from exc
+        except Exception as exc:
+            await session.rollback()
+            LOGGER.exception(
+                "password_reset.email_send_unexpected",
+                extra={
+                    "user_id": str(user.id),
+                    "smtp_host": self.settings.smtp_host,
+                    "smtp_port": self.settings.smtp_port,
+                },
+            )
+            raise ServiceUnavailableException(
+                "Unable to send password reset email. Check SMTP settings or try again later."
+            ) from exc
 
         await self.audit_service.log_event(
             session,
@@ -158,8 +199,10 @@ class PasswordResetService:
 
         user = await self.user_repository.get_by_email(session, normalized_email)
         if user is None:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=None)
             raise BadRequestException("Invalid or expired reset code")
+        if user.password_reset_blocked:
+            raise PasswordResetFlowBlockedException(self.settings.password_reset_flow_blocked_message)
 
         token_hash = self._hash_token(code)
         record = await self.password_reset_repository.get_active_for_user_by_hash(
@@ -168,14 +211,14 @@ class PasswordResetService:
             token_hash=token_hash,
         )
         if record is None:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=user)
             raise BadRequestException("Invalid or expired reset code")
         if record.used_at is not None:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=user)
             raise BadRequestException("Invalid or expired reset code")
         now = datetime.now(tz=UTC)
         if record.expires_at < now:
-            await self._record_reset_failure(identifier, account_identifier)
+            await self._record_reset_failure(session, identifier, account_identifier, user=user)
             raise BadRequestException("Invalid or expired reset code")
 
         password_hash = self.password_service.hash_password(new_password)
@@ -210,12 +253,24 @@ class PasswordResetService:
         )
         await session.commit()
 
-    async def _record_reset_failure(self, identifier: str, account_identifier: str) -> None:
+    async def _record_reset_failure(
+        self,
+        session: AsyncSession,
+        identifier: str,
+        account_identifier: str,
+        *,
+        user: User | None,
+    ) -> None:
         await self.brute_force_service.record_failure(
             scope="password_reset",
             identifier=identifier,
         )
-        await self.brute_force_service.record_failure(
+        acct_attempts = await self.brute_force_service.record_failure(
             scope="password_reset_account",
             identifier=account_identifier,
         )
+        if user is not None and acct_attempts >= self.settings.brute_force_password_reset_max_attempts:
+            user.password_reset_blocked = True
+            await session.flush()
+            # Persist before raising BadRequest: session middleware rolls back uncommitted work.
+            await session.commit()

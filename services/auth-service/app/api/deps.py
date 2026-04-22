@@ -90,16 +90,18 @@ def get_audit_service() -> AuditService:
     return AuditService(get_audit_repository())
 
 
-@lru_cache(maxsize=1)
 def get_email_provider() -> EmailProvider:
+    """Build ``EmailProvider`` from settings (``services/auth-service/.env`` + process env)."""
     settings = get_settings()
+    smtp_user = settings.smtp_username or settings.smtp_from_email_value
     return EmailProvider(
-        host=getattr(settings, "smtp_host", None),
-        port=getattr(settings, "smtp_port", 587),
-        username=getattr(settings, "smtp_username", None),
+        host=settings.smtp_host,
+        port=settings.smtp_port,
+        username=smtp_user,
         password=settings.smtp_password_value,
-        use_tls=getattr(settings, "smtp_use_tls", True),
+        use_tls=settings.smtp_use_tls,
         from_email=settings.smtp_from_email_value,
+        from_name=settings.smtp_from_name,
         require_delivery=settings.smtp_require_delivery_value,
     )
 

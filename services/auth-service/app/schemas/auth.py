@@ -2,9 +2,19 @@ from __future__ import annotations
 
 import re
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.schemas.token import TokenPairResponse
+
+
+class RegisterResponse(BaseModel):
+    """Registration creates the account only; clients must call ``POST /auth/login`` for tokens."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["created"] = "created"
 
 
 class RegisterRequest(BaseModel):
@@ -73,3 +83,5 @@ class PasswordResetResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str = "ok"
+    """False when outbound email was skipped (e.g. SMTP not configured with AUTH_ALLOW_MISSING_SMTP)."""
+    email_sent: bool = True
