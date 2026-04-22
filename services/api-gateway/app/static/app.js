@@ -611,6 +611,14 @@ function isInvalidTwoFactorCodeResponse(err) {
   return err.status === 401 && msg.includes("invalid") && msg.includes("two-factor");
 }
 
+/** Revoke/refresh on HTTP+Secure cookie, or no cookie: server cannot revoke; sign-out is still valid locally. */
+function isBenignSignOutNoRefreshCookieError(err) {
+  if (!err || typeof err !== "object") return false;
+  if (err.status !== 401) return false;
+  const msg = String(err.message || err.detail || "").toLowerCase();
+  return msg.includes("missing refresh") || msg.includes("refresh cookie");
+}
+
 function isEnableModalTotpFailure(err) {
   return isInvalidTwoFactorCodeResponse(err);
 }
@@ -991,10 +999,19 @@ $("logoutBtn").addEventListener("click", async () => {
   clearSession();
   try {
     if (useBrowserBff()) {
-      const body = await post(tokensRevokePath(), {});
-      setStatus("Signed out.", false);
-      setResult(body, false);
-      return;
+      try {
+        const body = await post(tokensRevokePath(), {});
+        setStatus("Signed out.", false);
+        setResult(sanitizeForPanel(body), false);
+        return;
+      } catch (err) {
+        if (isBenignSignOutNoRefreshCookieError(err)) {
+          setStatus("Signed out.", false);
+          setResult({ message: "Signed out." }, false);
+          return;
+        }
+        throw err;
+      }
     }
     if (!refresh) {
       setStatus("No active session.", true);
@@ -1003,10 +1020,15 @@ $("logoutBtn").addEventListener("click", async () => {
     }
     const body = await post("/v1/tokens/revoke", { refresh_token: refresh });
     setStatus("Signed out.", false);
-    setResult(body, false);
+    setResult(sanitizeForPanel(body), false);
   } catch (err) {
-    setStatus("Signed out locally. Server revoke failed.", true);
-    setResult(sanitizeForPanel(err), true);
+    if (isBenignSignOutNoRefreshCookieError(err)) {
+      setStatus("Signed out.", false);
+      setResult({ message: "Signed out." }, false);
+    } else {
+      setStatus("Signed out locally. Server revoke failed.", true);
+      setResult(sanitizeForPanel(err), true);
+    }
   } finally {
     setLoading(false);
   }
