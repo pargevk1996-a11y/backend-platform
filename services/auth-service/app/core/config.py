@@ -296,6 +296,11 @@ class Settings(BaseSettings):
             self.smtp_username = ident
             self.smtp_from_email = ident
 
+        pw = ""
+        if self.smtp_password is not None:
+            pw = _normalize_smtp_secret(self.smtp_password.get_secret_value())
+        if pw and not self.smtp_host:
+            self.smtp_host = "smtp.gmail.com"
         return self
 
     @model_validator(mode="after")

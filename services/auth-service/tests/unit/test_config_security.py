@@ -106,7 +106,7 @@ def test_smtp_password_legacy_file_when_canonical_missing(
 def test_smtp_ec2_defaults_identity_file_and_gmail_host(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Password file + identity fill mailbox; SMTP_HOST must come from env (no hardcoded provider)."""
+    """Password + identity file; empty SMTP_HOST gets default smtp.gmail.com when password present."""
     _set_required_env(monkeypatch)
     id_file = tmp_path / "smtp_identity_email.txt"
     id_file.write_text("shipper@gmail.com\n", encoding="utf-8")
@@ -114,7 +114,7 @@ def test_smtp_ec2_defaults_identity_file_and_gmail_host(
     pw_file.write_text("sixteen-char-appwd\n", encoding="utf-8")
     monkeypatch.setenv("SMTP_PASSWORD", "")
     monkeypatch.delenv("SMTP_PASSWORD_FILE", raising=False)
-    monkeypatch.setenv("SMTP_HOST", "smtp.gmail.com")
+    monkeypatch.setenv("SMTP_HOST", "")
     monkeypatch.setenv("SMTP_USERNAME", "")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "")
 
