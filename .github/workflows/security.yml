@@ -1,0 +1,93 @@
+name: Security Checks
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  security:
+    name: Security Test And Policy Guardrails
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/auth-service/requirements.lock
+          pip install -r services/user-service/requirements.lock
+          pip install -r services/api-gateway/requirements.lock
+          pip install -r services/notification-service/requirements.lock
+          pip install "bandit[toml]>=1.7.10,<2.0"
+
+      - name: Enforce JWT Library Policy (PyJWT only)
+        run: |
+          if grep -R -nE "python-jose|from jose|import jose" services shared; then
+            echo "Forbidden JWT library reference found"
+            exit 1
+          fi
+
+      - name: Enforce No Runtime Asserts
+        run: |
+          if grep -R -nE "^[[:space:]]*assert " services/*/app shared/python/src; then
+            echo "Runtime assert found in service code"
+            exit 1
+          fi
+
+      - name: Run Bandit SAST
+        run: |
+          bandit -r services shared/python/src -ll -x "*/tests/*,*/migrations/*"
+
+      - name: Run Auth Security Tests
+        run: |
+          PYTHONPATH=services/auth-service python -m pytest -q services/auth-service/tests/security services/auth-service/tests/integration
+
+      - name: Run Gateway Security Tests
+        run: |
+          PYTHONPATH=services/api-gateway python -m pytest -q services/api-gateway/tests/security
+
+  trivy:
+    name: Trivy Image Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: auth-service
+            dockerfile: infra/docker/auth-service.Dockerfile
+          - service: user-service
+            dockerfile: infra/docker/user-service.Dockerfile
+          - service: api-gateway
+            dockerfile: infra/docker/gateway.Dockerfile
+          - service: notification-service
+            dockerfile: infra/docker/notification-service.Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build -f ${{ matrix.dockerfile }} -t backend-platform/${{ matrix.service }}:security-scan .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: backend-platform/${{ matrix.service }}:security-scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL

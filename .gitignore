@@ -1,0 +1,14 @@
+# Local secrets and generated env (never commit)
+.env
+**/.env
+!**/.env.example
+
+secrets/
+*.pem
+
+# Python packaging noise
+*.egg-info/
+__pycache__/
+*.pyc
+.venv/
+venv/

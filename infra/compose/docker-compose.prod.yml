@@ -1,0 +1,194 @@
+services:
+  postgres-auth:
+    image: postgres:16
+    container_name: postgres-auth
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth_service
+      POSTGRES_USER: auth_service
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  postgres-user:
+    image: postgres:16
+    container_name: postgres-user
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: user_service
+      POSTGRES_USER: user_service
+      POSTGRES_PASSWORD: ${USER_DB_PASSWORD}
+    volumes:
+      - postgres_user_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - backend
+
+  auth-service:
+    build:
+      context: ../..
+      dockerfile: infra/docker/auth-service.Dockerfile
+    container_name: auth-service
+    restart: unless-stopped
+    # SMTP_*, SUPPORT_EMAIL, LOGIN_MAX_FAILED_ATTEMPTS, RESET_CODE_MAX_FAILED_ATTEMPTS: set in
+    # ../../services/auth-service/.env (merged into the container with the overrides below).
+    env_file:
+      - ../../services/auth-service/.env
+    environment:
+      # DATABASE_URL / REDIS_URL: only from env_file (see infra/scripts/render_prod_env_from_secrets.py)
+      # so passwords match and URL-encoding stays consistent. Keep DB password in sync with postgres-auth
+      # via AUTH_DB_PASSWORD in infra/compose/.env.compose; if you change it, reset the postgres volume
+      # or ALTER ROLE auth_service PASSWORD inside the DB.
+      SERVICE_ENV: production
+      TRUSTED_PROXY_IPS: 172.16.0.0/12
+      # Optional: load app password from mount when SMTP_PASSWORD is empty in ../../services/auth-service/.env.
+      SMTP_PASSWORD_FILE: /app/secrets/smtp_app_password.txt
+      # Default true so auth-service starts when secrets are incomplete; set AUTH_ALLOW_MISSING_SMTP=false in .env.compose when mail is fully wired.
+      AUTH_ALLOW_MISSING_SMTP: ${AUTH_ALLOW_MISSING_SMTP:-true}
+    volumes:
+      - ../../secrets:/app/secrets:ro
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/health/live', timeout=2)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # backend is internal-only; outbound SMTP needs DNS + TCP egress (e.g. port 587).
+    networks:
+      - backend
+      - edge
+
+  user-service:
+    build:
+      context: ../..
+      dockerfile: infra/docker/user-service.Dockerfile
+    container_name: user-service
+    restart: unless-stopped
+    env_file:
+      - ../../services/user-service/.env
+    environment:
+      SERVICE_ENV: production
+      TRUSTED_PROXY_IPS: 172.16.0.0/12
+    depends_on:
+      postgres-user:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/v1/health/live', timeout=2)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  api-gateway:
+    build:
+      context: ../..
+      dockerfile: infra/docker/gateway.Dockerfile
+    container_name: api-gateway
+    restart: unless-stopped
+    env_file:
+      - ../../services/api-gateway/.env
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8001
+      USER_SERVICE_URL: http://user-service:8002
+      SERVICE_ENV: production
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT:-8080}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health/live', timeout=2)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+      - edge
+
+networks:
+  backend:
+    internal: true
+  edge:
+
+volumes:
+  postgres_auth_data:
+  postgres_user_data:
+  redis_data:

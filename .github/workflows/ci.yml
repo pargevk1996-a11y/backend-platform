@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  dependency-audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip pip-audit
+
+      - name: pip-audit
+        run: |
+          set -e
+          for f in \
+            services/auth-service/requirements.lock \
+            services/user-service/requirements.lock \
+            services/api-gateway/requirements.lock \
+            services/notification-service/requirements.lock \
+            shared/python/requirements.lock
+          do
+            echo "pip-audit: $f"
+            pip-audit -r "$f"
+          done
+
+  test:
+    name: Unit And Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/auth-service/requirements.lock
+          pip install -r services/user-service/requirements.lock
+          pip install -r services/api-gateway/requirements.lock
+          pip install -r services/notification-service/requirements.lock
+
+      - name: Compile Check
+        run: |
+          python -m compileall -q services/auth-service services/user-service services/api-gateway services/notification-service shared/python/src
+
+      - name: Test Auth Service
+        run: |
+          PYTHONPATH=services/auth-service python -m pytest -q services/auth-service/tests
+
+      - name: Test User Service
+        run: |
+          PYTHONPATH=services/user-service python -m pytest -q services/user-service/tests
+
+      - name: Test API Gateway
+        run: |
+          PYTHONPATH=services/api-gateway python -m pytest -q services/api-gateway/tests
+
+      - name: Test Notification Service
+        run: |
+          PYTHONPATH=services/notification-service python -m pytest -q services/notification-service/tests
+
+  e2e-auth-flow:
+    name: E2E Auth Security Flow
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/auth-service/requirements.lock
+          pip install -r services/user-service/requirements.lock
+          pip install -r services/api-gateway/requirements.lock
+          pip install -r services/notification-service/requirements.lock
+          pip install -r tests/e2e/requirements.txt
+
+      - name: Run E2E Stack Test
+        run: |
+          bash infra/scripts/run_e2e_stack.sh
