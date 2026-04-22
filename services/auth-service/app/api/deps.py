@@ -91,16 +91,15 @@ def get_audit_service() -> AuditService:
 
 
 def get_email_provider() -> EmailProvider:
-    """SMTP fields come from ``get_settings()`` (``services/auth-service/.env`` + env)."""
+    """Build ``EmailProvider`` from settings (``services/auth-service/.env`` + process env)."""
     settings = get_settings()
-    # Gmail-style: FROM set but SMTP_USERNAME empty — use FROM as SMTP login identity.
-    smtp_user = getattr(settings, "smtp_username", None) or settings.smtp_from_email_value
+    smtp_user = settings.smtp_username or settings.smtp_from_email_value
     return EmailProvider(
-        host=getattr(settings, "smtp_host", None),
-        port=getattr(settings, "smtp_port", 587),
+        host=settings.smtp_host,
+        port=settings.smtp_port,
         username=smtp_user,
         password=settings.smtp_password_value,
-        use_tls=getattr(settings, "smtp_use_tls", True),
+        use_tls=settings.smtp_use_tls,
         from_email=settings.smtp_from_email_value,
         from_name=settings.smtp_from_name,
         require_delivery=settings.smtp_require_delivery_value,

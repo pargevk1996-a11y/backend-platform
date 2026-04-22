@@ -144,6 +144,7 @@ async def test_decode_access_token_rs256_success() -> None:
 @pytest.mark.asyncio
 async def test_public_endpoint_detection() -> None:
     assert is_public_endpoint("POST", "/v1/auth/login") is True
+    assert is_public_endpoint("POST", "/v1/browser-auth/refresh") is True
     assert is_public_endpoint("GET", "/v1/users/me") is False
 
 
@@ -172,3 +173,22 @@ def test_client_ip_honors_trusted_proxy_cidr() -> None:
     )
 
     assert get_client_ip(request, trusted_proxy_ips=["172.16.0.0/12"]) == "203.0.113.10"
+
+
+def test_client_ip_trusted_list_empty_never_uses_xff() -> None:
+    """Explicit empty trusted list — same as no trust: never take client IP from XFF."""
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "198.18.0.99"},
+        client=SimpleNamespace(host="10.0.0.50"),
+    )
+
+    assert get_client_ip(request, trusted_proxy_ips=[]) == "10.0.0.50"
+
+
+def test_client_ip_takes_first_hop_in_xff_chain() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "198.18.0.1, 198.18.0.2"},
+        client=SimpleNamespace(host="10.0.0.10"),
+    )
+
+    assert get_client_ip(request, trusted_proxy_ips=["10.0.0.10"]) == "198.18.0.1"

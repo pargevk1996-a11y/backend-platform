@@ -73,19 +73,13 @@ class AuthService:
         password: str,
         ip_address: str | None,
         user_agent: str | None,
-    ) -> TokenPair:
+    ) -> None:
         existing = await self.user_repository.get_by_email(session, email)
         if existing is not None:
             raise UserAlreadyExistsException()
 
         password_hash = self.password_service.hash_password(password)
         user = await self.user_repository.create(session, email=email, password_hash=password_hash)
-        token_pair = await self.refresh_token_service.issue_for_user(
-            session,
-            user_id=user.id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
 
         await self.audit_service.log_event(
             session,
@@ -98,7 +92,6 @@ class AuthService:
             payload={"email": user.email},
         )
         await session.commit()
-        return token_pair
 
     async def login(
         self,
