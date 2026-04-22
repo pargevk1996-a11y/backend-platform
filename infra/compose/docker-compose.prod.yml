@@ -148,6 +148,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../../services/api-gateway/.env
+    # Raw HTTP on host:port (e.g. EC2 :8080): browsers drop Secure HttpOnly cookies unless TLS — add to
+    # services/api-gateway/.env: REFRESH_COOKIE_SECURE=false (or terminate HTTPS at the edge).
     environment:
       AUTH_SERVICE_URL: http://auth-service:8001
       USER_SERVICE_URL: http://user-service:8002

@@ -26,8 +26,8 @@
           <strong>Insecure configuration.</strong>
           The Gateway URL must match this page&apos;s origin (same scheme, host, and port) so the demo can use the
           secure browser flow (HttpOnly refresh cookie, no token persistence in
-          <code>localStorage</code>). For machine-to-machine testing against another host, use API clients (curl,
-          scripts), not this web UI.
+          <code>localStorage</code>). If the URL points at another host, a full reload will not restore your session.
+          For machine-to-machine testing against another host, use API clients (curl, scripts), not this web UI.
         </div>
       </div>
     </header>
@@ -206,12 +206,20 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
+        <p id="modalDisablePasswordError" class="modal__field-error hidden" role="alert" aria-live="polite"></p>
         <label for="modalDisableTotp">Authenticator code</label>
-        <input id="modalDisableTotp" autocomplete="off" inputmode="numeric" placeholder="6–8 digits" />
+        <input
+          id="modalDisableTotp"
+          class="modal__totp-input"
+          autocomplete="off"
+          inputmode="numeric"
+          placeholder="6–8 digits"
+        />
+        <p id="modalDisableTotpError" class="modal__field-error hidden" role="alert" aria-live="polite"></p>
         <button type="button" id="modalDisableSubmitBtn" class="btn">Disable 2FA</button>
       </div>
     </div>
 
-    <script src="./app.js?v=20260422-signout-no-refresh-cookie-ok"></script>
+    <script src="./app.js?v=20260423-fix-syntax-normalize-error"></script>
   </body>
 </html>

@@ -121,6 +121,7 @@ services:
     container_name: api-gateway
     env_file:
       - ../../services/api-gateway/.env
+    # SERVICE_ENV=development → refresh cookie is not Secure by default (OK for http://localhost).
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       AUTH_SERVICE_URL: http://auth-service:8001

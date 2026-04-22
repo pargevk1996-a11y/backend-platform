@@ -39,7 +39,7 @@ const state = {
 };
 
 function baseUrl() {
-  const raw = $("baseUrl").value.replace(/\/+$/, "");
+  const raw = $("baseUrl").value.trim().replace(/\/+$/, "");
   if (raw) {
     return raw;
   }
@@ -63,7 +63,8 @@ function isUnsafeCrossOriginGateway() {
   try {
     return new URL(baseUrl()).origin !== window.location.origin;
   } catch {
-    return true;
+    /* Invalid URL while typing — do not lock the whole UI (that looked like "all buttons dead"). */
+    return false;
   }
 }
 
@@ -619,8 +620,90 @@ function isBenignSignOutNoRefreshCookieError(err) {
   return msg.includes("missing refresh") || msg.includes("refresh cookie");
 }
 
+/** Silent refresh failed before upstream: usually no HttpOnly cookie (e.g. Secure cookie rejected on HTTP). */
+function isMissingRefreshCookieError(err) {
+  return isBenignSignOutNoRefreshCookieError(err);
+}
+
 function isEnableModalTotpFailure(err) {
   return isInvalidTwoFactorCodeResponse(err);
+}
+
+function clearModalDisable2faError() {
+  ["modalDisablePasswordError", "modalDisableTotpError"].forEach((id) => {
+    const errEl = $(id);
+    if (errEl) {
+      errEl.textContent = "";
+      errEl.classList.add("hidden");
+      errEl.setAttribute("aria-hidden", "true");
+    }
+  });
+  const pw = $("modalDisablePassword");
+  const totp = $("modalDisableTotp");
+  if (pw) pw.classList.remove("modal-disable-password--invalid");
+  if (totp) totp.classList.remove("modal__totp-input--invalid");
+}
+
+/** Normalize thrown JSON from fetch (some proxies or older clients omit error_code). */
+function normalizeGatewayError(err) {
+  if (!err || typeof err !== "object") return err;
+  const hasCode = Boolean(String(err.error_code || "").trim());
+  if (hasCode) return err;
+  const detail = err.detail;
+  if (detail && typeof detail === "object" && !Array.isArray(detail) && detail.error_code) {
+    return {
+      ...err,
+      error_code: detail.error_code,
+      message: detail.message ?? err.message,
+      status: err.status,
+    };
+  }
+  const detailStr = typeof detail === "string" ? detail : "";
+  const msg = String(err.message ?? detailStr).toLowerCase();
+  if (msg.includes("invalid") && (msg.includes("password") || msg.includes("email"))) {
+    return { ...err, error_code: "INVALID_CREDENTIALS" };
+  }
+  if (msg.includes("invalid") && msg.includes("two-factor")) {
+    return { ...err, error_code: "INVALID_2FA_CODE" };
+  }
+  return err;
+}
+
+/** Map auth-service errors to short copy for the disable-2FA dialog (not the main status line). */
+function disableModalApiMessage(err) {
+  if (!err || typeof err !== "object") return "Disable 2FA failed.";
+  const code = String(err.error_code || "").toUpperCase();
+  if (code === "INVALID_CREDENTIALS") return "Incorrect password.";
+  if (code === "INVALID_2FA_CODE") return "Invalid authenticator code.";
+  return apiErrorMessage(err) || "Disable 2FA failed.";
+}
+
+/**
+ * @param {string} message
+ * @param {"password" | "totp"} field
+ */
+function setModalDisable2faError(message, field) {
+  clearModalDisable2faError();
+  const pwEl = $("modalDisablePasswordError");
+  const totpEl = $("modalDisableTotpError");
+  const pw = $("modalDisablePassword");
+  const totp = $("modalDisableTotp");
+  if (field === "password" && pwEl) {
+    pwEl.textContent = message;
+    pwEl.classList.remove("hidden");
+    pwEl.setAttribute("aria-hidden", "false");
+    if (pw) pw.classList.add("modal-disable-password--invalid");
+  } else if (field === "totp" && totpEl) {
+    totpEl.textContent = message;
+    totpEl.classList.remove("hidden");
+    totpEl.setAttribute("aria-hidden", "false");
+    if (totp) totp.classList.add("modal__totp-input--invalid");
+  } else if (pwEl) {
+    pwEl.textContent = message;
+    pwEl.classList.remove("hidden");
+    pwEl.setAttribute("aria-hidden", "false");
+    if (pw) pw.classList.add("modal-disable-password--invalid");
+  }
 }
 
 const LOGIN_TOTP_ERROR_TEXT = MODAL_ENABLE_TOTP_ERROR_TEXT;
@@ -689,6 +772,7 @@ function resetEnableModal() {
 function resetDisableModal() {
   $("modalDisablePassword").value = "";
   $("modalDisableTotp").value = "";
+  clearModalDisable2faError();
 }
 
 async function startEnable2faFlow() {
@@ -753,23 +837,31 @@ async function confirmEnable2faFromModal() {
 }
 
 async function submitDisable2faFromModal() {
+  clearModalDisable2faError();
   setLoading(true);
   setStatus("Disabling 2FA...", false);
   try {
     const token = ensureAccessToken();
     const password = $("modalDisablePassword").value;
     if (!password) {
-      setStatus("Password is required.", true);
+      setModalDisable2faError("Password is required.", "password");
+      setStatus("Ready.", false);
       return;
     }
     const totpRaw = $("modalDisableTotp").value.trim();
     if (!totpRaw) {
-      setStatus("Authenticator code is required.", true);
+      setModalDisable2faError("Authenticator code is required.", "totp");
+      setStatus("Ready.", false);
+      return;
+    }
+    if (!/^[0-9]{6,8}$/.test(totpRaw)) {
+      setModalDisable2faError("Authenticator code must be 6–8 digits.", "totp");
+      setStatus("Ready.", false);
       return;
     }
     const payload = {
       password,
-      totp_code: ensureTotp(totpRaw),
+      totp_code: totpRaw,
       backup_code: null,
     };
     const body = await post("/v1/two-factor/disable", payload, token);
@@ -779,8 +871,12 @@ async function submitDisable2faFromModal() {
     setResult(sanitizeForPanel(body), false);
     await refreshTwoFactorStatus();
   } catch (err) {
-    setStatus(apiErrorMessage(err) || "Disable 2FA failed.", true);
-    setResult(sanitizeForPanel(err), true);
+    const e = normalizeGatewayError(err);
+    const code = String(e?.error_code || "").toUpperCase();
+    const field = code === "INVALID_CREDENTIALS" ? "password" : code === "INVALID_2FA_CODE" ? "totp" : "password";
+    setModalDisable2faError(disableModalApiMessage(e), field);
+    setStatus("Ready.", false);
+    setResult("", false);
   } finally {
     setLoading(false);
   }
@@ -984,6 +1080,13 @@ $("modalEnableTotp").addEventListener("input", () => {
   if (!$("enable2faModal").classList.contains("hidden")) clearModalEnableTotpError();
 });
 
+$("modalDisablePassword")?.addEventListener("input", () => {
+  if (!$("disable2faModal").classList.contains("hidden")) clearModalDisable2faError();
+});
+$("modalDisableTotp")?.addEventListener("input", () => {
+  if (!$("disable2faModal").classList.contains("hidden")) clearModalDisable2faError();
+});
+
 $("sessionDisable2faBtn").addEventListener("click", () => {
   resetDisableModal();
   openModal($("disable2faModal"));
@@ -1112,8 +1215,25 @@ async function restoreStoredSession() {
       clearSession();
       const st = err && typeof err === "object" ? err.status : undefined;
       if ([400, 401, 403].includes(st)) {
-        setStatus("Ready.", false);
-        setResult({ message: "No active session. Sign in to continue." }, false);
+        if (isMissingRefreshCookieError(err)) {
+          setStatus(
+            "No refresh cookie (session cannot resume after reload). Over HTTP with production-like gateway settings, set REFRESH_COOKIE_SECURE=false or use HTTPS — see README.",
+            true,
+          );
+          setResult(
+            {
+              message: "Missing refresh cookie after reload.",
+              typical_cause:
+                "Browsers ignore Set-Cookie with the Secure flag on plain http://. Default gateway behavior uses Secure when SERVICE_ENV is not development.",
+              remediation:
+                "Set REFRESH_COOKIE_SECURE=false in api-gateway env for HTTP demos, or terminate TLS and use https://.",
+            },
+            false,
+          );
+        } else {
+          setStatus("Ready.", false);
+          setResult({ message: "No active session. Sign in to continue." }, false);
+        }
       } else {
         setStatus("Could not restore session (refresh failed).", true);
         setResult(sanitizeForPanel(err), true);

@@ -7,6 +7,7 @@ Bearer + refresh in the response body.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -18,6 +19,8 @@ from app.core.config import Settings
 from app.core.rate_limit import RateLimiter
 from app.core.security import get_client_ip
 from app.services.routing_service import RoutingService
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/browser-auth", tags=["browser-auth"])
 
@@ -205,12 +208,21 @@ async def browser_refresh(
 ) -> Response:
     refresh_from_cookie = request.cookies.get(settings.refresh_cookie_name)
     if not refresh_from_cookie:
+        rid = getattr(request.state, "request_id", None)
+        LOGGER.info(
+            "browser_auth_missing_refresh_cookie",
+            extra={
+                "request_id": rid,
+                "endpoint": "browser_refresh",
+                "cookie_name": settings.refresh_cookie_name,
+            },
+        )
         return JSONResponse(
             status_code=401,
             content={
                 "error_code": "HTTP_ERROR",
                 "message": "Missing refresh cookie",
-                "request_id": getattr(request.state, "request_id", None),
+                "request_id": rid,
             },
         )
     body = json.dumps({"refresh_token": refresh_from_cookie}).encode("utf-8")
@@ -235,12 +247,21 @@ async def browser_revoke(
 ) -> Response:
     refresh_from_cookie = request.cookies.get(settings.refresh_cookie_name)
     if not refresh_from_cookie:
+        rid = getattr(request.state, "request_id", None)
+        LOGGER.info(
+            "browser_auth_missing_refresh_cookie",
+            extra={
+                "request_id": rid,
+                "endpoint": "browser_revoke",
+                "cookie_name": settings.refresh_cookie_name,
+            },
+        )
         return JSONResponse(
             status_code=401,
             content={
                 "error_code": "HTTP_ERROR",
                 "message": "Missing refresh cookie",
-                "request_id": getattr(request.state, "request_id", None),
+                "request_id": rid,
             },
         )
     raw_body = await request.body()
