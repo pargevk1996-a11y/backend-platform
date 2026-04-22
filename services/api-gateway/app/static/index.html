@@ -22,6 +22,13 @@
             />
           </div>
         </div>
+        <div id="unsafeGatewayBanner" class="banner banner--danger hidden" role="alert" aria-live="polite">
+          <strong>Insecure configuration.</strong>
+          The Gateway URL must match this page&apos;s origin (same scheme, host, and port) so the demo can use the
+          secure browser flow (HttpOnly refresh cookie, no token persistence in
+          <code>localStorage</code>). For machine-to-machine testing against another host, use API clients (curl,
+          scripts), not this web UI.
+        </div>
       </div>
     </header>
 
@@ -205,6 +212,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260422-password-forgot-email-sent"></script>
+    <script src="./app.js?v=20260422-signout-no-refresh-cookie-ok"></script>
   </body>
 </html>

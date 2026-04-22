@@ -1,5 +1,14 @@
 const $ = (id) => document.getElementById(id);
-const SESSION_STORAGE_KEY = "backend-platform.auth.tokens.v1";
+/** Legacy key — removed on load; cross-origin UI no longer persists tokens. */
+const ACCESS_SESSION_STORAGE_KEY = "backend-platform.auth.access.v1";
+const LEGACY_TOKEN_STORAGE_KEY = "backend-platform.auth.tokens.v1";
+const SESSION_ACTION_IDS = [
+  "login2faBtn",
+  "sessionEnable2faBtn",
+  "sessionDisable2faBtn",
+  "registerEnable2faBtn",
+  "logoutBtn",
+];
 const ACCOUNT_CONTROL_IDS = [
   "chooseRegister",
   "chooseLogin",
@@ -38,6 +47,69 @@ function baseUrl() {
     return window.location.origin;
   }
   return "http://localhost:8000";
+}
+
+/** Same-origin to API base → gateway browser BFF (HttpOnly refresh cookie). */
+function useBrowserBff() {
+  try {
+    return new URL(baseUrl()).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Gateway URL must match this page — otherwise this UI must not store or send tokens in an insecure way. */
+function isUnsafeCrossOriginGateway() {
+  try {
+    return new URL(baseUrl()).origin !== window.location.origin;
+  } catch {
+    return true;
+  }
+}
+
+function syncUnsafeModeChrome() {
+  const banner = $("unsafeGatewayBanner");
+  const unsafe = isUnsafeCrossOriginGateway();
+  if (banner) banner.classList.toggle("hidden", !unsafe);
+  if (unsafe) {
+    clearSession();
+    migrateLegacyTokenStorage();
+    try {
+      sessionStorage.removeItem(ACCESS_SESSION_STORAGE_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+    refreshAccountState();
+    updateSessionChrome();
+    return;
+  }
+  refreshAccountState();
+  updateSessionChrome();
+}
+
+function migrateLegacyTokenStorage() {
+  try {
+    const legacy = localStorage.getItem(LEGACY_TOKEN_STORAGE_KEY);
+    if (legacy) localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+  } catch (_) {
+    // ignore
+  }
+}
+
+function authRegisterPath() {
+  return useBrowserBff() ? "/v1/browser-auth/register" : "/v1/auth/register";
+}
+function authLoginPath() {
+  return useBrowserBff() ? "/v1/browser-auth/login" : "/v1/auth/login";
+}
+function authLogin2faPath() {
+  return useBrowserBff() ? "/v1/browser-auth/login/2fa" : "/v1/auth/login/2fa";
+}
+function tokensRefreshPath() {
+  return useBrowserBff() ? "/v1/browser-auth/refresh" : "/v1/tokens/refresh";
+}
+function tokensRevokePath() {
+  return useBrowserBff() ? "/v1/browser-auth/revoke" : "/v1/tokens/revoke";
 }
 
 /** When the UI is opened over http(s) (e.g. EC2 :8080), use the same origin as the API base. */
@@ -143,10 +215,13 @@ function setTwoFaStep(visible) {
 }
 
 function hasActiveSession() {
-  return Boolean(state.tokens?.access_token && state.tokens?.refresh_token);
+  return Boolean(state.tokens?.access_token);
 }
 
 function formGuideText(mode) {
+  if (isUnsafeCrossOriginGateway()) {
+    return 'Set Gateway URL to this page\'s origin (or leave empty for auto). This UI cannot safely manage tokens against a different origin.';
+  }
   if (hasActiveSession()) {
     return "Active session. Sign out before creating another account, signing in, or resetting a password.";
   }
@@ -160,6 +235,14 @@ function formGuideText(mode) {
 }
 
 function refreshAccountState() {
+  if (isUnsafeCrossOriginGateway()) {
+    [...ACCOUNT_CONTROL_IDS, ...SESSION_ACTION_IDS].forEach((id) => {
+      const el = $(id);
+      if (el) el.disabled = true;
+    });
+    $("formGuide").textContent = formGuideText(state.formMode);
+    return;
+  }
   const isLocked = hasActiveSession();
   ACCOUNT_CONTROL_IDS.forEach((id) => {
     const el = $(id);
@@ -187,6 +270,15 @@ function resetPasswordFlowUi() {
 }
 
 function syncResetPhaseControls() {
+  if (isUnsafeCrossOriginGateway()) {
+    const code = $("resetCode");
+    const pw = $("resetPassword");
+    const confirm = $("resetConfirmBtn");
+    if (code) code.disabled = true;
+    if (pw) pw.disabled = true;
+    if (confirm) confirm.disabled = true;
+    return;
+  }
   const sent = state.passwordResetCodeSent;
   const code = $("resetCode");
   const pw = $("resetPassword");
@@ -361,15 +453,18 @@ function updateSessionChrome() {
   $("sessionDisable2faBtn").disabled = state.loading || en !== true;
   $("registerEnable2faBtn").disabled = state.loading || en !== false;
   $("logoutBtn").disabled = !hasActiveSession() || state.loading;
+  $("logoutBtn").classList.toggle("hidden", !signedIn);
 }
 
 async function post(path, payload, token) {
   const headers = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
+  const useCreds = path.startsWith("/v1/browser-auth");
   const res = await fetch(baseUrl() + path, {
     method: "POST",
     headers,
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload ?? {}),
+    credentials: useCreds ? "include" : "same-origin",
   });
   const text = await res.text();
   let body = text;
@@ -388,34 +483,60 @@ async function post(path, payload, token) {
 }
 
 function handleTokens(body) {
+  if (isUnsafeCrossOriginGateway()) return;
   if (body.challenge_id) state.challengeId = body.challenge_id;
   const tokens = body.access_token ? body : body.tokens;
-  if (tokens?.access_token && tokens?.refresh_token) setTokens(tokens);
+  if (!tokens?.access_token) return;
+  if (useBrowserBff()) {
+    setTokens({ access_token: tokens.access_token, expires_in: tokens.expires_in });
+  } else if (tokens.refresh_token) {
+    setTokens({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_in: tokens.expires_in,
+    });
+  }
 }
 
 function loadStoredTokens() {
+  migrateLegacyTokenStorage();
+  if (useBrowserBff()) {
+    try {
+      sessionStorage.removeItem(ACCESS_SESSION_STORAGE_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
+  }
   try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    const raw = localStorage.getItem(LEGACY_TOKEN_STORAGE_KEY);
     if (!raw) return null;
     const tokens = JSON.parse(raw);
     if (tokens?.access_token && tokens?.refresh_token) return tokens;
   } catch (_) {
     // Ignore malformed local state and force a clean sign-in.
   }
-  localStorage.removeItem(SESSION_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
   return null;
 }
 
 function saveTokens(tokens) {
-  if (!tokens?.access_token || !tokens?.refresh_token) return;
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(tokens));
+  if (!tokens?.access_token) return;
+  if (useBrowserBff()) {
+    /* Memory-only: refresh via HttpOnly cookie on reload; avoids XSS reading sessionStorage. */
+    return;
+  }
+  if (!tokens.refresh_token) return;
+  localStorage.setItem(LEGACY_TOKEN_STORAGE_KEY, JSON.stringify(tokens));
 }
 
 function clearStoredTokens() {
-  localStorage.removeItem(SESSION_STORAGE_KEY);
+  sessionStorage.removeItem(ACCESS_SESSION_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
 }
 
 function setTokens(tokens) {
+  if (tokens && isUnsafeCrossOriginGateway()) return;
   state.tokens = tokens;
   if (tokens) {
     saveTokens(tokens);
@@ -488,6 +609,14 @@ function isInvalidTwoFactorCodeResponse(err) {
   if (err.status === 401 && code === "INVALID_2FA_CODE") return true;
   const msg = String(err.message || err.detail || "").toLowerCase();
   return err.status === 401 && msg.includes("invalid") && msg.includes("two-factor");
+}
+
+/** Revoke/refresh on HTTP+Secure cookie, or no cookie: server cannot revoke; sign-out is still valid locally. */
+function isBenignSignOutNoRefreshCookieError(err) {
+  if (!err || typeof err !== "object") return false;
+  if (err.status !== 401) return false;
+  const msg = String(err.message || err.detail || "").toLowerCase();
+  return msg.includes("missing refresh") || msg.includes("refresh cookie");
 }
 
 function isEnableModalTotpFailure(err) {
@@ -667,14 +796,13 @@ $("regBtn").addEventListener("click", async () => {
       setStatus("Password must be at least 8 characters.", true);
       return;
     }
-    const body = await post("/v1/auth/register", {
+    const body = await post(authRegisterPath(), {
       email: $("regEmail").value,
       password,
     });
-    handleTokens(body);
     setTwoFaStep(false);
     $("regPassword").value = "";
-    setStatus("Account created.", false);
+    setStatus("Account created. Sign in with your email and password.", false);
     setResult(sanitizeForPanel(body), false);
     await refreshTwoFactorStatus();
   } catch (err) {
@@ -690,7 +818,7 @@ $("loginBtn").addEventListener("click", async () => {
   setStatus("Signing in...", false);
   setResult("Signing in...", false);
   try {
-    const body = await post("/v1/auth/login", {
+    const body = await post(authLoginPath(), {
       email: $("loginEmail").value,
       password: $("loginPassword").value,
     });
@@ -816,7 +944,7 @@ $("login2faBtn").addEventListener("click", async () => {
   setStatus("Verifying 2FA...", false);
   setResult({ message: "Verifying 2FA…" }, false);
   try {
-    const body = await post("/v1/auth/login/2fa", {
+    const body = await post(authLogin2faPath(), {
       challenge_id: state.challengeId,
       totp_code: totpRaw,
       backup_code: null,
@@ -870,6 +998,21 @@ $("logoutBtn").addEventListener("click", async () => {
   const refresh = state.tokens?.refresh_token;
   clearSession();
   try {
+    if (useBrowserBff()) {
+      try {
+        const body = await post(tokensRevokePath(), {});
+        setStatus("Signed out.", false);
+        setResult(sanitizeForPanel(body), false);
+        return;
+      } catch (err) {
+        if (isBenignSignOutNoRefreshCookieError(err)) {
+          setStatus("Signed out.", false);
+          setResult({ message: "Signed out." }, false);
+          return;
+        }
+        throw err;
+      }
+    }
     if (!refresh) {
       setStatus("No active session.", true);
       setResult({ status: "no_active_session" }, true);
@@ -877,16 +1020,29 @@ $("logoutBtn").addEventListener("click", async () => {
     }
     const body = await post("/v1/tokens/revoke", { refresh_token: refresh });
     setStatus("Signed out.", false);
-    setResult(body, false);
+    setResult(sanitizeForPanel(body), false);
   } catch (err) {
-    setStatus("Signed out locally. Server revoke failed.", true);
-    setResult(sanitizeForPanel(err), true);
+    if (isBenignSignOutNoRefreshCookieError(err)) {
+      setStatus("Signed out.", false);
+      setResult({ message: "Signed out." }, false);
+    } else {
+      setStatus("Signed out locally. Server revoke failed.", true);
+      setResult(sanitizeForPanel(err), true);
+    }
   } finally {
     setLoading(false);
   }
 });
 
 syncGatewayBaseUrlFromPage();
+$("baseUrl").addEventListener("input", () => syncUnsafeModeChrome());
+$("baseUrl").addEventListener("change", () => {
+  syncUnsafeModeChrome();
+  if (!isUnsafeCrossOriginGateway()) {
+    void restoreStoredSession();
+  }
+});
+syncUnsafeModeChrome();
 wirePasswordToggles();
 setFormMode("register");
 updateSessionChrome();
@@ -933,6 +1089,39 @@ window.addEventListener("load", () => {
 });
 
 async function restoreStoredSession() {
+  migrateLegacyTokenStorage();
+
+  if (isUnsafeCrossOriginGateway()) {
+    clearSession();
+    updateSessionChrome();
+    refreshAccountState();
+    return;
+  }
+
+  if (useBrowserBff()) {
+    setTwoFaStep(false);
+    setStatus("Restoring session...", false);
+    setResult("Restoring session...", false);
+    try {
+      const body = await post(tokensRefreshPath(), {});
+      handleTokens(body);
+      setStatus("Session restored.", false);
+      setResult({ status: "session_restored" }, false);
+      await refreshTwoFactorStatus();
+    } catch (err) {
+      clearSession();
+      const st = err && typeof err === "object" ? err.status : undefined;
+      if ([400, 401, 403].includes(st)) {
+        setStatus("Ready.", false);
+        setResult({ message: "No active session. Sign in to continue." }, false);
+      } else {
+        setStatus("Could not restore session (refresh failed).", true);
+        setResult(sanitizeForPanel(err), true);
+      }
+    }
+    return;
+  }
+
   const stored = loadStoredTokens();
   if (!stored) {
     updateSessionChrome();

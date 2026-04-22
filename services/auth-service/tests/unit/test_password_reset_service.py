@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -388,9 +389,19 @@ async def test_three_wrong_reset_codes_persist_password_reset_blocked(
 @pytest.mark.asyncio
 async def test_request_reset_unconfigured_smtp_allow_missing_no_token(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    # Empty SMTP_* must mean unconfigured, not "load password from repo secrets/".
+    from app.core import config as config_module
+
+    _missing = tmp_path / "not-a-smtp-app-password.txt"
+    monkeypatch.setattr(config_module, "_DEFAULT_SMTP_APP_PASSWORD_FILE", _missing)
+    monkeypatch.setattr(config_module, "_LEGACY_SMTP_PASSWORD_FILE", _missing)
+    monkeypatch.setattr(config_module, "_SMTP_IDENTITY_FILE", tmp_path / "not-a-smtp-identity.txt")
+
     monkeypatch.setenv("SMTP_HOST", "")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
     monkeypatch.setenv("AUTH_ALLOW_MISSING_SMTP", "true")
     get_settings.cache_clear()
     user = FakeUser(id=uuid4(), email="nomail@example.com")
@@ -409,9 +420,18 @@ async def test_request_reset_unconfigured_smtp_allow_missing_no_token(
 @pytest.mark.asyncio
 async def test_request_reset_unconfigured_smtp_strict_raises(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    from app.core import config as config_module
+
+    _missing = tmp_path / "not-a-smtp-app-password.txt"
+    monkeypatch.setattr(config_module, "_DEFAULT_SMTP_APP_PASSWORD_FILE", _missing)
+    monkeypatch.setattr(config_module, "_LEGACY_SMTP_PASSWORD_FILE", _missing)
+    monkeypatch.setattr(config_module, "_SMTP_IDENTITY_FILE", tmp_path / "not-a-smtp-identity.txt")
+
     monkeypatch.setenv("SMTP_HOST", "")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
     monkeypatch.setenv("AUTH_ALLOW_MISSING_SMTP", "false")
     get_settings.cache_clear()
     user = FakeUser(id=uuid4(), email="strict@example.com")

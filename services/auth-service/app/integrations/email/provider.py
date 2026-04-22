@@ -34,22 +34,33 @@ class EmailProvider:
     ) -> None:
         self.host = (host or "").strip() or None
         self.port = port
-        self.username = (username or "").strip() or (from_email or "").strip() or None
-        self.password = password
-        self.use_tls = use_tls
         self.from_email = (from_email or "").strip() or None
+        # Username defaults to From when only FROM is set in env (e.g. Gmail).
+        self.username = (username or "").strip() or self.from_email or None
+        self.password = (password or "").strip() or None
+        self.use_tls = use_tls
         self.from_name = (from_name or "").strip() or None
         self.require_delivery = require_delivery
 
+    def _missing_for_delivery(self) -> bool:
+        return not self.host or not self.from_email or not self.password
 
     async def send(self, *, to_email: str, subject: str, body: str) -> bool | None:
         """True after successful SMTP send; None if delivery was intentionally skipped."""
+        if self.require_delivery and self._missing_for_delivery():
+            raise RuntimeError("Email delivery is not configured")
+
         if not self.host or not self.from_email:
-            if self.require_delivery:
-                raise RuntimeError("Email delivery is not configured")
             LOGGER.warning(
                 "email.delivery_skipped",
                 extra={"to": to_email, "subject": subject, "reason": "not_configured"},
+            )
+            return None
+
+        if not self.password:
+            LOGGER.warning(
+                "email.delivery_skipped",
+                extra={"to": to_email, "subject": subject, "reason": "missing_password"},
             )
             return None
 
@@ -65,17 +76,22 @@ class EmailProvider:
         message.set_content(body)
 
         def _send() -> None:
-            LOGGER.info("SMTP connect: %s:%s", host, self.port)
+            LOGGER.info("SMTP connect", extra={"host": host, "port": self.port})
             try:
                 if self.use_tls and self.port == 465:
                     ctx = ssl.create_default_context()
                     with smtplib.SMTP_SSL(
                         host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC, context=ctx
                     ) as smtp:
-                        if self.username and self.password:
-                            LOGGER.info("SMTP login user: %s", self.username)
-                            smtp.login(self.username, self.password)
+                        # username/password checked before _send(); login identity may match From.
+                        uname, pwd = self.username, self.password
+                        LOGGER.info("SMTP login", extra={"username": uname})
+                        smtp.login(uname, pwd)
                         smtp.send_message(message)
+                        LOGGER.info(
+                            "SMTP send",
+                            extra={"to": to_email, "subject": subject},
+                        )
                 else:
                     with smtplib.SMTP(host, self.port, timeout=_DEFAULT_SMTP_TIMEOUT_SEC) as smtp:
                         smtp.ehlo()
@@ -83,10 +99,14 @@ class EmailProvider:
                             ctx = ssl.create_default_context()
                             smtp.starttls(context=ctx)
                             smtp.ehlo()
-                        if self.username and self.password:
-                            LOGGER.info("SMTP login user: %s", self.username)
-                            smtp.login(self.username, self.password)
+                        uname, pwd = self.username, self.password
+                        LOGGER.info("SMTP login", extra={"username": uname})
+                        smtp.login(uname, pwd)
                         smtp.send_message(message)
+                        LOGGER.info(
+                            "SMTP send",
+                            extra={"to": to_email, "subject": subject},
+                        )
             except SMTPException as exc:
                 LOGGER.exception(
                     "email.smtp_failed",

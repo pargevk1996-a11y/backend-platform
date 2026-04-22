@@ -41,6 +41,15 @@ def _normalize_smtp_secret(raw: str) -> str:
     return "".join(s.split())
 
 
+# Treat documented example env values as "no app password" (do not attempt SMTP login).
+_SMTP_PASSWORD_PLACEHOLDERS = frozenset(
+    {
+        "PASTE_YOUR_GMAIL_APP_PASSWORD_HERE",
+        "REPLACE_WITH_GMAIL_APP_PASSWORD",
+    }
+)
+
+
 def _normalize_smtp_identity_line(raw: str) -> str:
     line = raw.strip().splitlines()[0] if raw.strip() else ""
     return line.strip()
@@ -258,7 +267,10 @@ class Settings(BaseSettings):
             if key in seen:
                 continue
             seen.add(key)
-            if not path.is_file():
+            try:
+                if not path.is_file():
+                    continue
+            except OSError:
                 continue
             try:
                 raw = _normalize_smtp_secret(path.read_text(encoding="utf-8"))
@@ -273,15 +285,16 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _apply_smtp_ec2_defaults(self) -> Self:
         """Fill host/mailbox from repo secrets when env is incomplete (typical on EC2)."""
-        if _SMTP_IDENTITY_FILE.is_file():
-            try:
-                id_raw = _SMTP_IDENTITY_FILE.read_text(encoding="utf-8")
-            except OSError:
-                id_raw = ""
-            ident = _normalize_smtp_identity_line(id_raw)
-            if ident and not self.smtp_username and not self.smtp_from_email:
-                self.smtp_username = ident
-                self.smtp_from_email = ident
+        id_raw = ""
+        try:
+            # Avoid is_file(); use read_text (handles missing file and some perm issues).
+            id_raw = _SMTP_IDENTITY_FILE.read_text(encoding="utf-8")
+        except OSError:
+            pass
+        ident = _normalize_smtp_identity_line(id_raw)
+        if ident and not self.smtp_username and not self.smtp_from_email:
+            self.smtp_username = ident
+            self.smtp_from_email = ident
 
         pw = ""
         if self.smtp_password is not None:
@@ -352,11 +365,16 @@ class Settings(BaseSettings):
         if self.smtp_password is None:
             return None
         normalized = _normalize_smtp_secret(self.smtp_password.get_secret_value())
-        return normalized or None
+        if not normalized:
+            return None
+        if normalized.upper() in {p.upper() for p in _SMTP_PASSWORD_PLACEHOLDERS}:
+            return None
+        return normalized
 
     @property
     def smtp_is_configured(self) -> bool:
-        return bool(self.smtp_host and self.smtp_from_email_value)
+        """Host, From (or username), and app password are required for real SMTP delivery."""
+        return bool(self.smtp_host and self.smtp_from_email_value and self.smtp_password_value)
 
     @property
     def smtp_require_delivery_value(self) -> bool:
