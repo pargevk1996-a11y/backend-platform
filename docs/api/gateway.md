@@ -33,7 +33,7 @@ Same upstream behavior as `/v1/auth/*` and `/v1/tokens/*`, but successful token 
 
 - The demo keeps the access JWT in memory only; reload uses **`POST /v1/browser-auth/refresh`** with the HttpOnly cookie.
 - **`Secure` on the refresh cookie** is chosen per request: **on** for HTTPS (or **`X-Forwarded-Proto: https`** from **`TRUSTED_PROXY_IPS`**), **off** for plain HTTP to the gateway — so HTTP and HTTPS can both work without toggling env. Set **`REFRESH_COOKIE_SECURE=true|false`** only to force behavior.
-- If TLS terminates at a proxy, ensure **`TRUSTED_PROXY_IPS`** includes that proxy so **`X-Forwarded-Proto`** is trusted.
+- If TLS terminates at a proxy, ensure **`TRUSTED_PROXY_IPS`** includes that proxy. The gateway only uses **`X-Forwarded-Proto: https`** when **`X-Forwarded-For`** is also present (real proxies send both), so plain HTTP to Docker is not mis-detected as HTTPS.
 - The **Gateway URL** field must match the page **origin** (scheme + host + port); otherwise the demo disables the same-origin cookie flow.
 
 ## Health endpoints

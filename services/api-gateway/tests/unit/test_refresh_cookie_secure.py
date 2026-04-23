@@ -57,9 +57,27 @@ def test_auto_secure_forwarded_proto_from_trusted_proxy(monkeypatch: pytest.Monk
     req = _request(
         scheme="http",
         client=("198.18.0.99", 12345),
-        headers=[(b"x-forwarded-proto", b"https")],
+        headers=[
+            (b"x-forwarded-for", b"203.0.113.50"),
+            (b"x-forwarded-proto", b"https"),
+        ],
     )
     assert effective_refresh_cookie_secure(req, settings) is True
+    get_settings.cache_clear()
+
+
+def test_forwarded_proto_ignored_without_forwarded_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proxies add XFF; trusting XFP alone breaks HTTP behind Docker (bridge in TRUSTED_PROXY_IPS)."""
+    monkeypatch.delenv("REFRESH_COOKIE_SECURE", raising=False)
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "198.18.0.99")
+    get_settings.cache_clear()
+    settings = get_settings()
+    req = _request(
+        scheme="http",
+        client=("198.18.0.99", 12345),
+        headers=[(b"x-forwarded-proto", b"https")],
+    )
+    assert effective_refresh_cookie_secure(req, settings) is False
     get_settings.cache_clear()
 
 
