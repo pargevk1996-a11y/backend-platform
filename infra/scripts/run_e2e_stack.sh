@@ -13,7 +13,7 @@ cleanup() {
 
 wait_ready() {
   local url="$1"
-  local retries="${2:-60}"
+  local retries="${2:-90}"
   local sleep_sec="${3:-2}"
 
   for ((i = 1; i <= retries; i++)); do

@@ -45,6 +45,24 @@ bash infra/scripts/ec2_update.sh
 
 [`ec2_update.sh`](../infra/scripts/ec2_update.sh) runs `git fetch/checkout/pull` on `BRANCH` (default `main`) and then [`ec2_compose_up.sh`](../infra/scripts/ec2_compose_up.sh).
 
+## Refresh cookie / `/ui` reload (BFF diagnostics)
+
+If the browser shows “missing refresh cookie” after reload, run on the EC2 host from the repo root (after SSH/SSM):
+
+```bash
+bash infra/scripts/ec2_diagnose_refresh_cookie.sh
+```
+
+Optional: test whether login returns `Set-Cookie` (use a real test account):
+
+```bash
+export DIAGNOSE_LOGIN_EMAIL='user@example.com'
+export DIAGNOSE_LOGIN_PASSWORD='…'
+bash infra/scripts/ec2_diagnose_refresh_cookie.sh
+```
+
+The script prints `git HEAD`, `docker compose ps` / image info for `api-gateway`, recent log lines matching `browser_auth_missing_refresh_cookie` or errors, non-secret gateway env keys (`REFRESH_COOKIE_*`, `TRUSTED_PROXY_IPS`, `CORS_*`), optional `curl` headers, and a short browser DevTools checklist.
+
 ## File permissions
 
 The container runs as non-root (`appuser`). Ensure secret files are readable (often `chmod 644` for files owned by `ubuntu`). Avoid `600` root-only if the bind-mounted UID cannot read.

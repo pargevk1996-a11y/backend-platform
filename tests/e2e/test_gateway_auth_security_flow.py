@@ -19,14 +19,26 @@ except ImportError:  # pragma: no cover
 
 def _totp_from_setup_qr(qr_png_base64: str) -> pyotp.TOTP:
     if cv2 is None:
-        raise RuntimeError("e2e requires opencv-python-headless and numpy (see tests/e2e/requirements.txt)")
+        raise RuntimeError(
+            "e2e requires opencv-python-headless and numpy; see tests/e2e/requirements.txt"
+        )
     raw = base64.b64decode(qr_png_base64)
     arr = np.frombuffer(raw, dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
         raise AssertionError("failed to decode setup QR image")
     detector = cv2.QRCodeDetector()
-    uri, _, _ = detector.detectAndDecode(img)
+    uri = ""
+    for scale in (1.0, 2.0, 3.0):
+        if scale == 1.0:
+            sample = img
+        else:
+            sample = cv2.resize(
+                img, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST
+            )
+        uri, _, _ = detector.detectAndDecode(sample)
+        if uri:
+            break
     if not uri:
         raise AssertionError("no otpauth URI in QR")
     return pyotp.parse_uri(uri)
