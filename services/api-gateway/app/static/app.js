@@ -2,6 +2,8 @@ const $ = (id) => document.getElementById(id);
 /** Legacy key — removed on load; cross-origin UI no longer persists tokens. */
 const ACCESS_SESSION_STORAGE_KEY = "backend-platform.auth.access.v1";
 const LEGACY_TOKEN_STORAGE_KEY = "backend-platform.auth.tokens.v1";
+/** After a successful same-origin BFF login/refresh; lets reload tell "lost HttpOnly cookie" from "never signed in". */
+const BROWSER_BFF_SESSION_HINT_KEY = "backend-platform.browser.had-bff-session.v1";
 const SESSION_ACTION_IDS = [
   "login2faBtn",
   "sessionEnable2faBtn",
@@ -489,6 +491,11 @@ function handleTokens(body) {
   const tokens = body.access_token ? body : body.tokens;
   if (!tokens?.access_token) return;
   if (useBrowserBff()) {
+    try {
+      sessionStorage.setItem(BROWSER_BFF_SESSION_HINT_KEY, "1");
+    } catch (_) {
+      /* ignore quota / private mode */
+    }
     setTokens({ access_token: tokens.access_token, expires_in: tokens.expires_in });
   } else if (tokens.refresh_token) {
     setTokens({
@@ -548,7 +555,18 @@ function setTokens(tokens) {
   void refreshTwoFactorStatus();
 }
 
-function clearSession() {
+/**
+ * @param {{ keepBrowserBffHint?: boolean }} [opts]
+ */
+function clearSession(opts = {}) {
+  const { keepBrowserBffHint = false } = opts;
+  if (!keepBrowserBffHint) {
+    try {
+      sessionStorage.removeItem(BROWSER_BFF_SESSION_HINT_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+  }
   setTokens(null);
   state.challengeId = null;
   state.twoFactorEnabled = null;
@@ -1205,6 +1223,12 @@ async function restoreStoredSession() {
     setTwoFaStep(false);
     setStatus("Restoring session...", false);
     setResult("Restoring session...", false);
+    let hadBffSessionHint = false;
+    try {
+      hadBffSessionHint = sessionStorage.getItem(BROWSER_BFF_SESSION_HINT_KEY) === "1";
+    } catch (_) {
+      hadBffSessionHint = false;
+    }
     try {
       const body = await post(tokensRefreshPath(), {});
       handleTokens(body);
@@ -1212,25 +1236,30 @@ async function restoreStoredSession() {
       setResult({ status: "session_restored" }, false);
       await refreshTwoFactorStatus();
     } catch (err) {
-      clearSession();
+      clearSession({ keepBrowserBffHint: true });
       const st = err && typeof err === "object" ? err.status : undefined;
       if ([400, 401, 403].includes(st)) {
         if (isMissingRefreshCookieError(err)) {
-          setStatus(
-            "No refresh cookie (session cannot resume after reload). Sign in again, or check Gateway URL / TLS proxy (TRUSTED_PROXY_IPS + X-Forwarded-Proto) — see README.",
-            true,
-          );
-          setResult(
-            {
-              message: "Missing refresh cookie after reload.",
-              typical_causes: [
-                "Cookie was never set (sign-in failed, wrong origin, or browser blocked Set-Cookie).",
-                "HTTPS at a proxy: gateway must trust the proxy (TRUSTED_PROXY_IPS) so X-Forwarded-Proto=https is applied to the refresh cookie Secure flag.",
-                "Rare: force REFRESH_COOKIE_SECURE=false in api-gateway env if you must override auto behavior.",
-              ],
-            },
-            false,
-          );
+          if (hadBffSessionHint) {
+            setStatus(
+              "No refresh cookie (session cannot resume after reload). Sign in again, or check Gateway URL / TLS proxy (TRUSTED_PROXY_IPS + X-Forwarded-Proto) — see README.",
+              true,
+            );
+            setResult(
+              {
+                message: "Missing refresh cookie after reload.",
+                typical_causes: [
+                  "Browser did not store or send HttpOnly cookie bp_rt (wrong page origin vs Gateway URL, or Set-Cookie dropped: Secure on plain HTTP, blocked third-party, etc.).",
+                  "HTTPS behind a proxy: TRUSTED_PROXY_IPS must include the proxy; X-Forwarded-For and X-Forwarded-Proto must reflect the browser (see gateway docs).",
+                  "Override: set REFRESH_COOKIE_SECURE=false in api-gateway .env only if you must force non-Secure cookie on HTTP.",
+                ],
+              },
+              false,
+            );
+          } else {
+            setStatus("Ready.", false);
+            setResult({ message: "No active session. Sign in to continue." }, false);
+          }
         } else {
           setStatus("Ready.", false);
           setResult({ message: "No active session. Sign in to continue." }, false);
