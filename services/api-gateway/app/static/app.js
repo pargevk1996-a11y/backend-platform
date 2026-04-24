@@ -818,6 +818,42 @@ function copyTextViaExecCommand(text) {
   }
 }
 
+/** @type {WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>} */
+const _copyCheckTimers = new WeakMap();
+
+/**
+ * @param {HTMLButtonElement} copyButton
+ */
+function flashCopyCheck(copyButton) {
+  const wrap = copyButton.closest(".backup-copy-actions");
+  const mark = wrap && wrap.querySelector(".copy-check");
+  if (!mark) return;
+  const prev = _copyCheckTimers.get(copyButton);
+  if (prev) clearTimeout(prev);
+  mark.classList.add("copy-check--visible");
+  mark.setAttribute("aria-hidden", "false");
+  const t = setTimeout(() => {
+    mark.classList.remove("copy-check--visible");
+    mark.setAttribute("aria-hidden", "true");
+    _copyCheckTimers.delete(copyButton);
+  }, 2000);
+  _copyCheckTimers.set(copyButton, t);
+}
+
+/**
+ * @param {string} className
+ */
+function createCopyActionRow(className) {
+  const row = document.createElement("div");
+  row.className = `backup-copy-actions ${className}`.trim();
+  const mark = document.createElement("span");
+  mark.className = "copy-check";
+  mark.setAttribute("aria-hidden", "true");
+  mark.setAttribute("aria-label", "Copied");
+  mark.textContent = "✓";
+  return { row, mark };
+}
+
 function fillBackupCodeList(ul, codes) {
   const toolbar = $("modalBackupToolbar");
   if (toolbar) {
@@ -827,15 +863,17 @@ function fillBackupCodeList(ul, codes) {
   if (!ul) return;
   ul.innerHTML = "";
   if (!Array.isArray(codes) || codes.length === 0) return;
+  const allText = codes.join("\n");
   if (toolbar) {
     toolbar.classList.remove("hidden");
+    const { row: allRow, mark: allMark } = createCopyActionRow("backup-copy-actions--all");
     const copyAllBtn = document.createElement("button");
     copyAllBtn.type = "button";
-    copyAllBtn.className = "btn btn--tiny btn--ghost";
-    copyAllBtn.textContent = "Copy all codes";
+    copyAllBtn.className = "btn btn--tiny btn--backup-copy-all";
+    copyAllBtn.textContent = "Copy all backup codes";
     copyAllBtn.addEventListener("click", () => {
-      void copyTextToClipboard(codes.join("\n"))
-        .then(() => setStatus("All backup codes copied to clipboard.", false))
+      void copyTextToClipboard(allText)
+        .then(() => flashCopyCheck(copyAllBtn))
         .catch(() =>
           setStatus(
             "Could not copy automatically. Select the codes in the list and copy manually (Ctrl/Cmd+C), or retype them into a password manager.",
@@ -843,20 +881,23 @@ function fillBackupCodeList(ul, codes) {
           )
         );
     });
-    toolbar.appendChild(copyAllBtn);
+    allRow.appendChild(copyAllBtn);
+    allRow.appendChild(allMark);
+    toolbar.appendChild(allRow);
   }
   codes.forEach((c) => {
     const li = document.createElement("li");
     const code = document.createElement("code");
     code.textContent = c;
     code.className = "backup-code";
+    const { row, mark } = createCopyActionRow("");
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "btn btn--tiny btn--ghost";
     btn.textContent = "Copy";
     btn.addEventListener("click", () => {
       void copyTextToClipboard(c)
-        .then(() => setStatus("Backup code copied to clipboard.", false))
+        .then(() => flashCopyCheck(btn))
         .catch(() =>
           setStatus(
             "Could not copy automatically. Select the code and copy it manually (Ctrl/Cmd+C).",
@@ -864,8 +905,10 @@ function fillBackupCodeList(ul, codes) {
           )
         );
     });
+    row.appendChild(btn);
+    row.appendChild(mark);
     li.appendChild(code);
-    li.appendChild(btn);
+    li.appendChild(row);
     ul.appendChild(li);
   });
 }

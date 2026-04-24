@@ -443,6 +443,51 @@ button.password-toggle:hover {
   margin: 0 0 10px;
 }
 
+/* Copy button + inline ✓ (no status-line spam) */
+.backup-copy-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.backup-copy-actions--all {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.btn--backup-copy-all {
+  font-weight: 600;
+  border: 1px solid var(--success);
+  color: var(--success);
+  background: rgba(126, 214, 164, 0.08);
+}
+
+.btn--backup-copy-all:hover {
+  background: rgba(126, 214, 164, 0.15);
+}
+
+.copy-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1em;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--success);
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.copy-check.copy-check--visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .backup-list {
   list-style: none;
   padding: 0;
