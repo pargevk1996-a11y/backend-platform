@@ -758,10 +758,93 @@ function safeLoginResultForPanel(body) {
   return sanitizeForPanel(body);
 }
 
+/**
+ * Copy text from a direct user gesture. Uses the Clipboard API when available; falls back to
+ * execCommand so copy works on plain HTTP and older browsers.
+ * @param {string} text
+ * @returns {Promise<void>}
+ */
+function copyTextToClipboard(text) {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard
+        .writeText(text)
+        .then(() => resolve())
+        .catch(() => {
+          try {
+            copyTextViaExecCommand(text);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        });
+      return;
+    }
+    try {
+      copyTextViaExecCommand(text);
+      resolve();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function copyTextViaExecCommand(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.setAttribute("aria-hidden", "true");
+  ta.style.position = "fixed";
+  ta.style.top = "0";
+  ta.style.left = "0";
+  ta.style.width = "1px";
+  ta.style.height = "1px";
+  ta.style.padding = "0";
+  ta.style.border = "none";
+  ta.style.outline = "none";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(ta);
+  }
+  if (!ok) {
+    throw new Error("Copy command was rejected");
+  }
+}
+
 function fillBackupCodeList(ul, codes) {
+  const toolbar = $("modalBackupToolbar");
+  if (toolbar) {
+    toolbar.innerHTML = "";
+    toolbar.classList.add("hidden");
+  }
   if (!ul) return;
   ul.innerHTML = "";
-  if (!Array.isArray(codes)) return;
+  if (!Array.isArray(codes) || codes.length === 0) return;
+  if (toolbar) {
+    toolbar.classList.remove("hidden");
+    const copyAllBtn = document.createElement("button");
+    copyAllBtn.type = "button";
+    copyAllBtn.className = "btn btn--tiny btn--ghost";
+    copyAllBtn.textContent = "Copy all codes";
+    copyAllBtn.addEventListener("click", () => {
+      void copyTextToClipboard(codes.join("\n"))
+        .then(() => setStatus("All backup codes copied to clipboard.", false))
+        .catch(() =>
+          setStatus(
+            "Could not copy automatically. Select the codes in the list and copy manually (Ctrl/Cmd+C), or retype them into a password manager.",
+            true
+          )
+        );
+    });
+    toolbar.appendChild(copyAllBtn);
+  }
   codes.forEach((c) => {
     const li = document.createElement("li");
     const code = document.createElement("code");
@@ -772,7 +855,14 @@ function fillBackupCodeList(ul, codes) {
     btn.className = "btn btn--tiny btn--ghost";
     btn.textContent = "Copy";
     btn.addEventListener("click", () => {
-      void navigator.clipboard.writeText(c).then(() => setStatus("Copied to clipboard.", false));
+      void copyTextToClipboard(c)
+        .then(() => setStatus("Backup code copied to clipboard.", false))
+        .catch(() =>
+          setStatus(
+            "Could not copy automatically. Select the code and copy it manually (Ctrl/Cmd+C).",
+            true
+          )
+        );
     });
     li.appendChild(code);
     li.appendChild(btn);

@@ -435,6 +435,14 @@ button.password-toggle:hover {
   border-color: var(--danger);
 }
 
+.backup-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
 .backup-list {
   list-style: none;
   padding: 0;
