@@ -24,6 +24,10 @@ Do not commit these files; `secrets/` is gitignored.
 | Outbound **TCP 587** (and 465 if you use implicit TLS) | EC2 security group: allow egress to `0.0.0.0/0` or at least `smtp.gmail.com` |
 | DNS | Instance must resolve public hostnames |
 
+## Deploy from GitHub Actions (optional)
+
+If the repo has secrets **`EC2_HOST`**, **`EC2_USER`**, **`EC2_SSH_PRIVATE_KEY`**, use **Actions → Deploy EC2 → Run workflow** to run [`ec2_update.sh`](../infra/scripts/ec2_update.sh) over SSH (branch + `CORS_ORIGINS` as inputs). Default `repo_path` is `/home/ubuntu/backend-platform` — change the input if your clone lives elsewhere.
+
 ## Deploy / refresh env
 
 From the repo root (same place as `infra/`, `secrets/`):

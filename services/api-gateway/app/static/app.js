@@ -758,24 +758,157 @@ function safeLoginResultForPanel(body) {
   return sanitizeForPanel(body);
 }
 
+/**
+ * Copy text from a direct user gesture. Uses the Clipboard API when available; falls back to
+ * execCommand so copy works on plain HTTP and older browsers.
+ * @param {string} text
+ * @returns {Promise<void>}
+ */
+function copyTextToClipboard(text) {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard
+        .writeText(text)
+        .then(() => resolve())
+        .catch(() => {
+          try {
+            copyTextViaExecCommand(text);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        });
+      return;
+    }
+    try {
+      copyTextViaExecCommand(text);
+      resolve();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function copyTextViaExecCommand(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.setAttribute("aria-hidden", "true");
+  ta.style.position = "fixed";
+  ta.style.top = "0";
+  ta.style.left = "0";
+  ta.style.width = "1px";
+  ta.style.height = "1px";
+  ta.style.padding = "0";
+  ta.style.border = "none";
+  ta.style.outline = "none";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(ta);
+  }
+  if (!ok) {
+    throw new Error("Copy command was rejected");
+  }
+}
+
+/** @type {WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>} */
+const _copyCheckTimers = new WeakMap();
+
+/**
+ * @param {HTMLButtonElement} copyButton
+ */
+function flashCopyCheck(copyButton) {
+  const wrap = copyButton.closest(".backup-copy-actions");
+  const mark = wrap && wrap.querySelector(".copy-check");
+  if (!mark) return;
+  const prev = _copyCheckTimers.get(copyButton);
+  if (prev) clearTimeout(prev);
+  mark.classList.add("copy-check--visible");
+  mark.setAttribute("aria-hidden", "false");
+  const t = setTimeout(() => {
+    mark.classList.remove("copy-check--visible");
+    mark.setAttribute("aria-hidden", "true");
+    _copyCheckTimers.delete(copyButton);
+  }, 2000);
+  _copyCheckTimers.set(copyButton, t);
+}
+
+/**
+ * @param {string} className
+ */
+function createCopyActionRow(className) {
+  const row = document.createElement("div");
+  row.className = `backup-copy-actions ${className}`.trim();
+  const mark = document.createElement("span");
+  mark.className = "copy-check";
+  mark.setAttribute("aria-hidden", "true");
+  mark.setAttribute("aria-label", "Copied");
+  mark.textContent = "✓";
+  return { row, mark };
+}
+
 function fillBackupCodeList(ul, codes) {
+  const toolbar = $("modalBackupToolbar");
+  if (toolbar) {
+    toolbar.innerHTML = "";
+    toolbar.classList.add("hidden");
+  }
   if (!ul) return;
   ul.innerHTML = "";
-  if (!Array.isArray(codes)) return;
+  if (!Array.isArray(codes) || codes.length === 0) return;
+  const allText = codes.join("\n");
+  if (toolbar) {
+    toolbar.classList.remove("hidden");
+    const { row: allRow, mark: allMark } = createCopyActionRow("backup-copy-actions--all");
+    const copyAllBtn = document.createElement("button");
+    copyAllBtn.type = "button";
+    copyAllBtn.className = "btn btn--tiny btn--backup-copy-all";
+    copyAllBtn.textContent = "Copy all backup codes";
+    copyAllBtn.addEventListener("click", () => {
+      void copyTextToClipboard(allText)
+        .then(() => flashCopyCheck(copyAllBtn))
+        .catch(() =>
+          setStatus(
+            "Could not copy automatically. Select the codes in the list and copy manually (Ctrl/Cmd+C), or retype them into a password manager.",
+            true
+          )
+        );
+    });
+    allRow.appendChild(copyAllBtn);
+    allRow.appendChild(allMark);
+    toolbar.appendChild(allRow);
+  }
   codes.forEach((c) => {
     const li = document.createElement("li");
     const code = document.createElement("code");
     code.textContent = c;
     code.className = "backup-code";
+    const { row, mark } = createCopyActionRow("");
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "btn btn--tiny btn--ghost";
     btn.textContent = "Copy";
     btn.addEventListener("click", () => {
-      void navigator.clipboard.writeText(c).then(() => setStatus("Copied to clipboard.", false));
+      void copyTextToClipboard(c)
+        .then(() => flashCopyCheck(btn))
+        .catch(() =>
+          setStatus(
+            "Could not copy automatically. Select the code and copy it manually (Ctrl/Cmd+C).",
+            true
+          )
+        );
     });
+    row.appendChild(btn);
+    row.appendChild(mark);
     li.appendChild(code);
-    li.appendChild(btn);
+    li.appendChild(row);
     ul.appendChild(li);
   });
 }
