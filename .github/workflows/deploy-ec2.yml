@@ -37,7 +37,7 @@ jobs:
           BRANCH: ${{ github.event.inputs.branch }}
           CORS_ORIGINS: ${{ github.event.inputs.cors_origins }}
           REPO_PATH: ${{ github.event.inputs.repo_path }}
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
